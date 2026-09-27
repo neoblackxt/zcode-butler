@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <title>stats</title>
 <style>
+  /* v0.12.3 B+E1 徽章仪表(定稿 2026-09-28,原型见 ZCode UI/zcode-composer-stats-prototypes.html)
+     双主题:宿主经 PostJson 推 theme;色值逐值取自 zai-org/ZCode theme-zai-light/dark token。
+     四态数值动画:body[data-state] = idle(空闲) / waiting(等首token) / streaming(流式中) / done(完成)。
+     全部 CSS 像素——WebView2 光栅化 = dpr 1.75,页面视口 = 窗口物理尺寸 ÷ 1.75,勿写物理像素。 */
   html, body {
     margin: 0;
     padding: 0;
@@ -12,46 +16,149 @@
     user-select: none;
     cursor: default;
   }
+  body {
+    /* dark = theme-zai-dark(默认) */
+    --tx: #d4d4d4;
+    --lab: rgba(212, 212, 212, .4);
+    --num: rgba(212, 212, 212, .7);
+    --border: rgba(255, 255, 255, .1);
+    --pbg: rgba(255, 255, 255, .05);
+    --success: #46bf72;
+    --sky: #4099ff;
+    --idlec: #747474;   /* terminal-bright-black */
+  }
+  body[data-theme="light"] {
+    /* light = theme-zai-light */
+    --tx: #262626;
+    --lab: rgba(38, 38, 38, .4);
+    --num: rgba(38, 38, 38, .6);
+    --border: rgba(13, 13, 13, .1);
+    --pbg: rgba(13, 13, 13, .03);
+    --success: #1e8a3e;
+    --sky: #0b7fff;
+    --idlec: #888888;
+  }
   #strip {
     position: fixed;
     inset: 0;
     display: flex;
-    align-items: flex-end;        /* 文字底对齐:窗口底缘锚在可视底边-2px,字底即贴边 */
-    justify-content: center;    /* 以输入框为中心居中(宿主把窗口中心锚到输入框中心) */
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
-                 "PingFang SC", "Microsoft YaHei UI", "Helvetica Neue",
-                 Arial, sans-serif;
-    font-size: 12px;             /* 定死(用户拍板),不跟随界面字号 */
-    font-weight: 400;            /* 与底栏胶囊文字一致 */
-    color: #D4D4D4;              /* 胶囊文字实测核心色 */
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-right: 0;
     white-space: nowrap;
+    color: var(--tx);
   }
-  #strip .v { font-variant-numeric: tabular-nums; }
-  #strip .sep { opacity: .55; margin: 0 .45em; }
-  #strip .gap { display: inline-block; width: 2.2em; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--pbg);
+    font-family: "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 400;
+    transition: background-color .3s ease, border-color .3s ease;
+  }
+  .pill .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    flex: none;
+  }
+  .pill .ic { color: var(--lab); flex: none; }
+  .lab { color: var(--lab); }
+  .num {
+    font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--num);
+  }
+  .unit { color: var(--lab); }
+  .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+  .bars i { width: 3px; border-radius: 2px; background: var(--sky); opacity: .85; }
+  .bars i:nth-child(5n+1) { animation: eq1 1.05s ease-in-out infinite; }
+  .bars i:nth-child(5n+2) { animation: eq2 .9s  ease-in-out infinite; }
+  .bars i:nth-child(5n+3) { animation: eq3 1.2s ease-in-out infinite; }
+  .bars i:nth-child(5n+4) { animation: eq2 .8s  ease-in-out infinite; }
+  .bars i:nth-child(5n)   { animation: eq1 1.3s ease-in-out infinite; }
+  @keyframes eq1 { 0%, 100% { height: 30%; } 50% { height: 95%; } }
+  @keyframes eq2 { 0%, 100% { height: 70%; } 50% { height: 25%; } }
+  @keyframes eq3 { 0%, 100% { height: 45%; } 50% { height: 85%; } }
+  @keyframes dotpulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+  /* ---- 四态数值动画 ---- */
+  /* streaming(默认):绿点呼吸 + 火花线全动 */
+  body[data-state="streaming"] .dot { animation: dotpulse 1.8s ease-in-out infinite; }
+  /* idle:灰点静止、数值占位、火花线趴平 */
+  body[data-state="idle"] .dot { background: var(--idlec); animation: none; }
+  body[data-state="idle"] .bars i { animation: none; height: 3px; opacity: .35; }
+  /* waiting(等首 token):sky 点快闪、ttft 计数、火花线趴平 */
+  body[data-state="waiting"] .dot { background: var(--sky); animation: dotpulse .7s ease-in-out infinite; }
+  body[data-state="waiting"] .bars i { animation: none; height: 3px; opacity: .35; }
+  /* done:点静止、数值定格、火花线定格 */
+  body[data-state="done"] .dot { animation: none; }
+  body[data-state="done"] .bars i { animation-play-state: paused; }
 </style>
 </head>
-<body>
+<body data-theme="dark" data-state="idle">
   <div id="strip">
-    <span>首 token <span class="v" id="ttft">1.44s</span></span><span class="sep">·</span><span>实时 <span class="v" id="tps">108 tok/s</span></span><span class="sep">·</span><span>平均 <span class="v" id="avg">98 tok/s</span></span><span class="gap"></span><span>缓存命中 <span class="v" id="hit">29%</span></span>
+    <span class="pill"><span class="dot"></span><svg class="ic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg><span class="lab">首 token</span><b class="num" id="ttft">—</b></span>
+    <span class="pill"><span class="bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><b class="num" id="tps">—</b><span class="unit" id="tpsUnit">tok/s</span></span>
   </div>
 <script>
-  // ---- 假数据(演示):温和漂移;接真数据时由宿主 PostJson 覆盖 ----
-  let ttft = 1.44, tps = 108, avg = 98, hit = 29;
+  // ---- 四态数值动画(当前为假数据周期演示;真数据接入时由宿主 PostJson
+  //      {"type":"state","v":"waiting|streaming|done|idle"} + 数值驱动,语法不变) ----
+  var ttftEl = document.getElementById('ttft');
+  var tpsEl = document.getElementById('tps');
+  var tpsUnit = document.getElementById('tpsUnit');
+  var state = 'idle', phaseEnd = 0, ttft = 0, tps = 38.4;
+
   function rnd(a, b) { return a + Math.random() * (b - a); }
-  function tick() {
-    ttft = Math.min(2.2, Math.max(0.5, ttft + rnd(-0.1, 0.1)));
-    tps  = Math.min(140, Math.max(50,  tps  + rnd(-6, 6)));
-    avg  = avg + (tps - avg) * 0.1;
-    hit  = Math.min(60,  Math.max(10,  hit  + rnd(-1.5, 1.5)));
-    document.getElementById('ttft').textContent = ttft.toFixed(2) + 's';
-    document.getElementById('tps').textContent  = Math.round(tps) + ' tok/s';
-    document.getElementById('avg').textContent  = Math.round(avg) + ' tok/s';
-    document.getElementById('hit').textContent  = Math.round(hit) + '%';
+  function now() { return performance.now(); }
+  function setState(s, holdMs) {
+    state = s;
+    document.body.dataset.state = s;
+    if (s === 'idle') { ttftEl.textContent = '—'; tpsEl.textContent = '—'; phaseEnd = now() + 6500; }
+    if (s === 'waiting') { ttft = 0; tpsEl.textContent = '—'; phaseEnd = now() + 900; }
+    if (s === 'streaming') { ttft = +rnd(0.42, 1.30).toFixed(2); ttftEl.textContent = ttft.toFixed(2) + 's'; tps = rnd(30, 50); phaseEnd = now() + holdMs; }
+    if (s === 'done') { phaseEnd = now() + 2500; }
   }
-  window.addEventListener('load', () => {
+  function next() {
+    if (state === 'idle') return 'waiting';
+    if (state === 'waiting') return 'streaming';
+    if (state === 'streaming') return 'done';
+    return 'idle';
+  }
+
+  setInterval(function () {
+    if (state === 'waiting') { ttft += 0.1; ttftEl.textContent = ttft.toFixed(2) + 's'; }
+    if (state === 'streaming') {
+      tps = Math.min(55, Math.max(28, tps + rnd(-2.4, 2.4)));
+      tpsEl.textContent = tps.toFixed(1);
+    }
+    if (now() >= phaseEnd) setState(next());
+  }, 100);
+
+  // ---- 主题:宿主 PostJson {"type":"theme","v":"light|dark"} ----
+  try {
+    window.chrome.webview.addEventListener('message', function (e) {
+      var m = e.data;
+      if (typeof m === 'string') { try { m = JSON.parse(m); } catch (err) { return; } }
+      if (m && m.type === 'theme' && (m.v === 'light' || m.v === 'dark')) {
+        document.body.dataset.theme = m.v;
+        try { chrome.webview.postMessage('{"type":"themeApplied","v":"' + m.v + '"}'); } catch (err) { }
+      }
+    });
+  } catch (err) { }
+
+  window.addEventListener('load', function () {
     try { chrome.webview.postMessage('{"type":"ready"}'); } catch (e) { }
-    setInterval(tick, 2500);
+    setState('idle');
   });
 </script>
 </body>

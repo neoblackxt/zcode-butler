@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ZCode 输入框性能浮标 · 设计原型</title>
+<style>
+  /* ============================================================
+     设计 token — 逐值取自 zai-org/ZCode packages/ui/src/styles.css
+     .theme-zai-light / .theme-zai-dark 两个主题块
+     ============================================================ */
+  .t-light {
+    --bg: #f8f8f8;
+    --panel: #ffffff;
+    --border: rgba(13, 13, 13, 0.1);
+    --border-hover: rgba(13, 13, 13, 0.15);
+    --surface: rgba(13, 13, 13, 0.03);
+    --surface-hover: rgba(13, 13, 13, 0.05);
+    --input: #ffffff;
+    --fg: #262626;              /* neutral-800 */
+    --fg-subtle: rgba(38, 38, 38, 0.6);
+    --fg-subtlest: rgba(38, 38, 38, 0.4);
+    --inverse: #ffffff;
+    --brand: #000000;
+    --accent: #ebf4ff;
+    --success: #1e8a3e;
+    --sky: #0b7fff;             /* usage-chart-1 / terminal-blue */
+  }
+  .t-dark {
+    --bg: #161616;
+    --panel: #202020;
+    --border: rgba(255, 255, 255, 0.1);
+    --border-hover: rgba(255, 255, 255, 0.15);
+    --surface: rgba(255, 255, 255, 0.05);
+    --surface-hover: rgba(255, 255, 255, 0.1);
+    --input: #2b2b2b;
+    --fg: #d4d4d4;              /* neutral-300 */
+    --fg-subtle: rgba(212, 212, 212, 0.6);
+    --fg-subtlest: rgba(212, 212, 212, 0.3);
+    --inverse: #000000;
+    --brand: #ffffff;
+    --accent: #001d3d;
+    --success: #46bf72;
+    --sky: #4099ff;
+  }
+
+  :root {
+    --font-sans: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      "Liberation Mono", "Courier New", "Microsoft YaHei UI", "Microsoft YaHei",
+      "PingFang SC", "Noto Sans CJK SC", monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background: #ebebeb;
+    color: #333;
+    padding: 32px 28px 64px;
+  }
+  .page { max-width: 1120px; margin: 0 auto; }
+  .page-head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+  .page-head h1 { font-size: 20px; margin: 0; }
+  .page-head .sub { font-size: 13px; color: #777; }
+  .demo-toggle {
+    margin-left: auto;
+    font: 12px/1 var(--font-sans);
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(13,13,13,.15);
+    background: #fff;
+    color: #333;
+    cursor: pointer;
+  }
+  .demo-toggle:hover { background: #f2f2f2; }
+  .page-note { font-size: 12px; color: #999; margin: 0 0 28px; }
+
+  /* 变体区块 */
+  .variant { margin-bottom: 44px; }
+  .vhead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .vid {
+    font: 600 11px/1 var(--font-mono);
+    color: #fff;
+    background: #333;
+    border-radius: 6px;
+    padding: 4px 7px;
+  }
+  .vhead h2 { font-size: 15px; margin: 0; }
+  .vhead p { font-size: 12.5px; color: #888; margin: 0; }
+  .final-badge {
+    font: 600 10px/1 var(--font-sans);
+    color: #fff;
+    background: #1e8a3e;
+    border-radius: 999px;
+    padding: 4px 9px;
+    letter-spacing: .04em;
+  }
+  .duo { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; }
+
+  /* 应用窗口假体 */
+  .mock {
+    border-radius: 12px;
+    background: var(--bg);
+    padding: 26px 22px 30px;
+    border: 1px solid rgba(13,13,13,.06);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 10px;
+    min-height: 240px;
+    position: relative;
+  }
+  .mock .theme-tag {
+    position: absolute; top: 10px; right: 12px;
+    font: 10px/1 var(--font-mono);
+    color: var(--fg-subtlest);
+    letter-spacing: .08em;
+  }
+  /* 上方淡淡的会话残影,提供上下文 */
+  .mock .ghost-msg { font-size: 12.5px; line-height: 20px; color: var(--fg-subtlest); padding: 0 2px; }
+
+  /* ============================================================
+     输入框复刻 — 对应 ChatPromptEditor.tsx 壳:
+     rounded-2xl border-input-border bg-input p-3 flex-col gap-3
+     ============================================================ */
+  .composer {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--input);
+    padding: 12px;
+    transition: border-color .15s ease, background-color .15s ease;
+  }
+  .composer:hover { border-color: var(--border-hover); }
+  .composer:focus-within { border-color: var(--border-hover); }
+  .editor {
+    min-height: 40px;
+    max-height: 160px;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--fg);
+    outline: none;
+    caret-color: var(--fg);
+  }
+  .editor:empty::before {
+    content: attr(data-ph);
+    color: var(--fg-subtlest);
+    pointer-events: none;
+  }
+  .toolbar { display: flex; align-items: flex-end; gap: 12px; }
+  .tb-left { display: flex; align-items: center; gap: 4px; }
+  .tb-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .ghost-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px;
+    border: none; border-radius: 8px;
+    background: transparent; color: var(--fg-subtle);
+    cursor: pointer;
+  }
+  .ghost-btn:hover { background: var(--surface-hover); color: var(--fg); }
+  .mode-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 30px; padding: 0 9px;
+    border: none; border-radius: 8px;
+    background: transparent; color: var(--fg-subtle);
+    font: 12px/1 var(--font-sans);
+    cursor: pointer;
+  }
+  .mode-chip:hover { background: var(--surface-hover); color: var(--fg); }
+  .send-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px;
+    border: none; border-radius: 8px;
+    background: var(--brand); color: var(--inverse);
+    cursor: pointer;
+  }
+  .send-btn:hover { opacity: .8; }
+
+  /* ============================================================
+     性能浮标公共件
+     ============================================================ */
+  .st { display: flex; align-items: center; font-size: 12px; color: var(--fg-subtlest); }
+  .st svg { flex: none; }
+  .st .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--success);
+    animation: dotpulse 1.8s ease-in-out infinite;
+  }
+  .st .lab { font-family: var(--font-sans); color: var(--fg-subtlest); }
+  .st .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 400;
+    color: var(--fg-subtle);
+  }
+  .st .unit { color: var(--fg-subtlest); }
+  .st .sep { color: var(--fg-subtlest); opacity: .7; }
+  @keyframes dotpulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+  body.paused .st .dot, body.paused .bars i { animation-play-state: paused; }
+
+  /* A · 幽灵状态行(居中,无底无框,悬浮不占版面也行) */
+  .st-ghost { justify-content: center; gap: 16px; }
+  .st-ghost .grp { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* 胶囊(mention chip 同族):B 原版与 B+E 合并版共用 */
+  .st-pills, .st-pillmeter { gap: 8px; }
+  .st-pills { justify-content: flex-start; }
+  .st-pillmeter { justify-content: flex-end; }
+  .st .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 24px; padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 11px;
+  }
+  .st-pillmeter .bars, .st-pillone .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; margin-right: 2px; }
+
+  /* B+E3 · 单胶囊(全部信息一枚收口,发丝竖线分隔) */
+  .st-pillone { justify-content: flex-end; gap: 8px; }
+  .st-pillone .pdiv { width: 1px; height: 12px; background: var(--border); margin: 0 2px; flex: none; }
+
+  /* E 原版 · 迷你速率仪表(右置,裸火花线无胶囊) */
+  .st-meter { width: 100%; justify-content: flex-end; gap: 8px; }
+  .st-meter .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; margin: 0 2px; }
+
+  /* C · 状态条(全宽薄条,贴输入框上沿) */
+  .st-strip {
+    width: 100%;
+    justify-content: space-between;
+    padding: 5px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .st-strip .side { display: inline-flex; align-items: center; gap: 8px; }
+
+  /* D · 内嵌顶栏(输入框内部 topContent 位) */
+  .st-embed {
+    width: 100%;
+    justify-content: space-between;
+    padding: 1px 2px 9px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: -1px;
+  }
+  .st-embed .side { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* B+E · 徽章仪表(右置,胶囊内嵌火花线);基础条形样式全局,胶囊与裸条共用 */
+  .bars i { width: 3px; height: 40%; border-radius: 2px; background: var(--sky); opacity: .85; }
+  .bars i:nth-child(5n+1) { animation: eq1 1.05s ease-in-out infinite; }
+  .bars i:nth-child(5n+2) { animation: eq2 .9s  ease-in-out infinite; }
+  .bars i:nth-child(5n+3) { animation: eq3 1.2s ease-in-out infinite; }
+  .bars i:nth-child(5n+4) { animation: eq2 .8s  ease-in-out infinite; }
+  .bars i:nth-child(5n)   { animation: eq1 1.3s ease-in-out infinite; }
+  @keyframes eq1 { 0%, 100% { height: 30%; } 50% { height: 95%; } }
+  @keyframes eq2 { 0%, 100% { height: 70%; } 50% { height: 25%; } }
+  @keyframes eq3 { 0%, 100% { height: 45%; } 50% { height: 85%; } }
+
+  footer.page-foot { font-size: 12px; color: #999; line-height: 1.9; max-width: 860px; }
+  footer.page-foot code { font-family: var(--font-mono); font-size: 11px; background: #e2e2e2; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="page-head">
+    <h1>ZCode 输入框性能浮标 · 设计原型</h1>
+    <span class="sub">首 token 延迟 + decode 输出速度 · 5 个方案 × 明暗双主题</span>
+    <button class="demo-toggle" id="demoToggle">暂停演示</button>
+  </div>
+  <p class="page-note"><b style="color:#1e8a3e">B+E1(徽章仪表 · 双胶囊 · 右置)已于 2026-09-28 应用为定稿</b>;其余方案保留作对照。输入框为按官方源码的 1:1 复刻(ChatPromptEditor 壳 + Lexical 编辑区 + 工具条);色值 / 圆角 / 字号全部取自 zai-org/ZCode 的 theme-zai-light / theme-zai-dark token。数字为假数据,实时跳动。</p>
+  <div id="variants"></div>
+  <footer class="page-foot">
+    <b>接入位置说明</b>:D 对应原生 <code>ChatPromptEditor</code> 的 <code>topContent</code> 插槽(输入框内部,天然一体化);A / B+E / C 放在 composer 前上方间隙,A 无底无框,也可做绝对定位悬浮不挤占版面;B+E 右置需对齐输入框右缘(定位方案见 anchor-plan)。空闲态建议整组淡出或隐藏。<br />
+    <b>口径建议</b>:首 token = 发送 → 首个可见 token 的耗时;速度 = 滑动窗口 decode tok/s,等宽数字 + <code>tabular-nums</code> 防跳动。
+  </footer>
+</div>
+
+<script>
+  // ---------- lucide 内联图标(与 ZCode 同族 lucide-react) ----------
+  const ICONS = {
+    zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+    activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
+    plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    arrowUp: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+    chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  };
+  const icon = (name, size, extra = '') =>
+    `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra}>${ICONS[name]}</svg>`;
+
+  // ---------- 五个浮标方案的 DOM(同一结构喂给两个主题) ----------
+  const widgetGhost = `
+    <div class="st st-ghost">
+      <span class="dot"></span>
+      <span class="grp">${icon('zap', 12)}<span class="lab">首 token</span><b class="num" data-k="ttft">0.86s</b></span>
+      <span class="sep">·</span>
+      <span class="grp">${icon('activity', 12)}<b class="num" data-k="speed">38.4</b><span class="unit">&nbsp;tok/s</span></span>
+    </div>`;
+
+  const widgetStrip = `
+    <div class="st st-strip">
+      <span class="side"><span class="dot"></span><span class="lab">首 token</span><b class="num" data-k="ttft">0.86s</b></span>
+      <span class="side"><b class="num" data-k="speed">38.4</b><span class="unit">&nbsp;tok/s</span>${icon('activity', 12)}</span>
+    </div>`;
+
+  const widgetEmbed = `
+    <div class="st st-embed">
+      <span class="side"><span class="dot"></span>${icon('zap', 12)}<b class="num" data-k="ttft">0.86s</b></span>
+      <span class="side"><b class="num" data-k="speed">38.4</b><span class="unit">&nbsp;tok/s</span>${icon('activity', 12)}</span>
+    </div>`;
+
+  const bars = Array.from({ length: 12 }, () => '<i></i>').join('');
+
+  const widgetPills = `
+    <div class="st st-pills">
+      <span class="pill">${icon('zap', 11)}<span class="lab">首 token</span><b class="num" data-k="ttft">0.86s</b></span>
+      <span class="pill">${icon('activity', 11)}<b class="num" data-k="speed">38.4</b><span class="unit">&nbsp;tok/s</span></span>
+    </div>`;
+
+  const widgetPillMeter = `
+    <div class="st st-pillmeter">
+      <span class="pill"><span class="dot"></span>${icon('zap', 11)}<span class="lab">首 token</span><b class="num" data-k="ttft">0.86s</b></span>
+      <span class="pill"><span class="bars">${bars}</span><b class="num" data-k="speed">38.4</b><span class="unit">&nbsp;tok/s</span></span>
+    </div>`;
+
+  const widgetBareMeter = `
+    <div class="st st-meter">
+      <span class="dot"></span>${icon('zap', 11)}<span class="lab">首 token</span><b class="num" data-k="ttft">0.86s</b>
+      <span class="sep">·</span>
+      <span class="bars">${bars}</span>
+      <b class="num" data-k="speed">38.4</b><span class="unit">&nbsp;tok/s</span>
+    </div>`;
+
+  const widgetPillOne = `
+    <div class="st st-pillone">
+      <span class="pill"><span class="dot"></span>${icon('zap', 11)}<span class="lab">首 token</span><b class="num" data-k="ttft">0.86s</b><span class="pdiv"></span><span class="bars">${bars}</span><b class="num" data-k="speed">38.4</b><span class="unit">&nbsp;tok/s</span></span>
+    </div>`;
+
+  const widgetMeter = `
+    <div class="st st-meter">
+      <span class="lab">首 token</span><b class="num" data-k="ttft">0.86s</b>
+      <span class="sep">·</span>
+      <span class="bars">${bars}</span>
+      <b class="num" data-k="speed">38.4</b><span class="unit">&nbsp;tok/s</span>
+    </div>`;
+
+  // ---------- 输入框复刻 ----------
+  const composer = (topSlot = '') => `
+    <div class="composer">
+      ${topSlot}
+      <div class="editor" contenteditable="true" spellcheck="false" data-ph="描述任务,@ 引用文件,/ 调用命令"></div>
+      <div class="toolbar">
+        <div class="tb-left">
+          <button class="ghost-btn" tabindex="-1" title="添加">${icon('plus', 15)}</button>
+          <button class="mode-chip" tabindex="-1">Agent ${icon('chevronDown', 12)}</button>
+        </div>
+        <div class="tb-right">
+          <button class="send-btn" tabindex="-1" title="发送">${icon('arrowUp', 16)}</button>
+        </div>
+      </div>
+    </div>`;
+
+  // ---------- 渲染 ----------
+  const VARIANTS = [
+    { id: 'A', name: '幽灵状态行 · 居中', desc: '最轻:无底无框,12px 等宽数字,可绝对定位悬浮、不挤占版面,空闲时隐去后零痕迹', widget: widgetGhost, inComposer: false },
+    { id: 'B', name: '徽章胶囊 · 左置(原版)', desc: 'mention chip 同族胶囊,两组指标各自成块;速度用 activity 图标,无火花线', widget: widgetPills, inComposer: false },
+    { id: 'B+E1', name: '徽章仪表 · 双胶囊(定稿+绿点)', desc: '你定的合并版加上 C/D 同款呼吸绿点:第一枚胶囊 = 绿点+⚡+首 token,第二枚 = 火花线+速度', widget: widgetPillMeter, inComposer: false, final: true },
+    { id: 'B+E2', name: '徽章仪表 · 无胶囊', desc: '去掉胶囊壳:E 原版的裸排 + 呼吸绿点,最轻的右置形态', widget: widgetBareMeter, inComposer: false },
+    { id: 'B+E3', name: '徽章仪表 · 单胶囊', desc: '全部信息收进一枚胶囊,发丝竖线分隔首 token 与速度;最紧凑的整体感', widget: widgetPillOne, inComposer: false },
+    { id: 'E', name: '迷你速率仪表 · 右置(原版)', desc: '裸火花线 + 数字,无胶囊壳;信息密度最高但缺边界感', widget: widgetMeter, inComposer: false },
+    { id: 'C', name: '状态条 · 全宽贴上沿', desc: '3% 表面底 + 发丝边框的独立薄条,信息完整、最接近你原来悬浮统计条的气质', widget: widgetStrip, inComposer: false },
+    { id: 'D', name: '内嵌顶栏 · 输入框内部', desc: '原生 topContent 插槽位,与输入框一体(发丝线分隔),聚焦同框,最"原生"', widget: widgetEmbed, inComposer: true },
+  ];
+
+  const mock = (theme, v) => `
+    <div class="mock t-${theme}">
+      <span class="theme-tag">${theme === 'light' ? 'ZAI LIGHT · #f8f8f8' : 'ZAI DARK · #161616'}</span>
+      <div class="ghost-msg">把 lib/utils.ts 里的重试逻辑抽成通用装饰器,注意保留日志埋点……</div>
+      ${v.inComposer ? '' : v.widget}
+      ${composer(v.inComposer ? v.widget : '')}
+    </div>`;
+
+  document.getElementById('variants').innerHTML = VARIANTS.map((v) => `
+    <section class="variant">
+      <div class="vhead"><span class="vid">${v.id}</span><h2>${v.name}</h2><p>${v.desc}</p>${v.final ? '<span class="final-badge">✓ 已应用 · 定稿 2026-09-28</span>' : ''}</div>
+      <div class="duo">${mock('light', v)}${mock('dark', v)}</div>
+    </section>`).join('');
+
+  // ---------- 假数据跳动 ----------
+  const state = { running: true, ttft: 0.86, speed: 38.4 };
+  const rand = (min, max) => min + Math.random() * (max - min);
+  function tick() {
+    if (!state.running) return;
+    state.ttft = Math.min(1.3, Math.max(0.42, state.ttft + rand(-0.09, 0.09)));
+    state.speed = Math.min(55, Math.max(28, state.speed + rand(-2.4, 2.4)));
+    document.querySelectorAll('[data-k="ttft"]').forEach((el) => { el.textContent = state.ttft.toFixed(2) + 's'; });
+    document.querySelectorAll('[data-k="speed"]').forEach((el) => { el.textContent = state.speed.toFixed(1); });
+  }
+  setInterval(tick, 900);
+
+  const toggleBtn = document.getElementById('demoToggle');
+  toggleBtn.addEventListener('click', () => {
+    state.running = !state.running;
+    document.body.classList.toggle('paused', !state.running);
+    toggleBtn.textContent = state.running ? '暂停演示' : '恢复演示';
+  });
+</script>
+</body>
+</html>

@@ -1,8 +1,20 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
-# ZCode 会话统计覆盖层 v0.10(码管家·会话统计条;输入框下方,底边锚定)
-# 显示:首token X.XXs · 实时 N tok/s · 平均 N tok/s  ⇢  缓存命中 N%
-#   (当前为页面内假数据,后续接 rollout)
+# ZCode 会话统计覆盖层 v0.12(码管家·会话统计条;输入框上沿,B+E1 徽章仪表右置)
+# 显示:● ⚡ 首 token X.XXs | ▁▃▅ N.N tok/s(双胶囊,呼吸绿点+sky 火花线,页面内假数据)
+# v0.12:出现时机 + 位置自适应(CDP 通道):
+#   ZCode 以 --remote-debugging-port=9222 启动(zcode-cdp-launch.vbs)时,anchor-probe.mjs
+#   读 composer 实时 rect(视口 CSS px)→ ~/.zcode/stats-widget-anchor.json → 本宿主换算
+#   屏幕坐标(ClientToScreen+GetDpiForWindow)。行为:右缘/上沿实时跟随;composer 高
+#   > showMaxComposerPx(288+24 滞回)隐藏、回落恢复;侧栏/面板宽度自适应。
+#   无 CDP(裸启动/探锚死/文件陈旧>2s)自动降级基线常量锚(v0.11 行为,常显)。
+#   C# 跟随重构为「窗口相对偏移」:SetFollowParams(z,offX,offY,w,h),基线/CDP 统一喂入。
+# v0.11:形态换 B+E1 定稿(见桌面仓库 ZCode UI/zcode-composer-stats-prototypes.html),
+#   锚从「输入框下空带居中」改为「输入框上沿右对齐」:
+#   垂直 = 可视帧底边 - 35(带,v0.10 实测状态无关)- composerHeight - gap - 窗高
+#   水平 = 窗口中心 + centerXOffset + composerHalfWidth - 窗宽(右缘贴 composer 右缘)
+#   composerHeight=182 / composerHalfWidth=841 为 2026-09-28 实机实测值(1.75dpr 最大化),
+#   ~/.zcode/stats-widget.json 可调(composerHeightPx / composerHalfWidthPx / gapAbovePx)
 # v0.10:垂直锚改 DWM 可视帧底边(ExtendedFrameBounds)——窗口矩形含不可见
 #   缩放边框(最大化超出可视区 ~12px / 普通态内缩 ~8px),旧锚随缩放状态漂移
 #   (全屏 3-4px vs 非全屏 12px)。现为「输入框下空带居中」:带高实测 35px
@@ -53,29 +65,37 @@ function WLog($m) { try { Add-Content -Path $dbgLog -Value ("{0} {1}" -f (Get-Da
 function WLogRaw($m) { try { [IO.File]::AppendAllText($dbgLog, [DateTime]::Now.ToString('MM-dd HH:mm:ss') + ' ' + $m + [char]13 + [char]10) } catch { } }
 
 $script:centerXOffset = 63        # 输入框中心相对窗口中心的水平偏移(侧栏所致,实测 63;侧栏折叠后改 0)
-$script:bottomMargin = 8          # 窗口底缘距可视帧底边:空带实测 35px(输入框底2041~边框线2075)、文字19px,
-                                  # 居中=(35-19)/2≈8px;带高=20css 固定内边距,与窗口状态无关
+# v0.11 右置上沿锚常量(物理像素,1.75dpr 基准;三项均可在 json 覆盖)
+$script:bandFromBottom = 35       # 输入框底缘距可视帧底边(v0.10 实测 35px,状态无关)
+$script:composerHeightPx = 182    # 2026-09-28 实机实测(上缘1859/下缘2041,1.75dpr 最大化)
+$script:composerHalfWidthPx = 841 # 2026-09-28 实机实测(composer 右缘2824 = 中心1920+偏移63+半宽841)
+$script:gapAbovePx = 8            # 浮标底缘与输入框上沿间距
+$script:showMaxComposerPx = 288   # v0.12 出现阈值:composer 实测高超过(288+24 滞回)即隐藏;json 可调
 $script:cfgWinW = 0
 $script:cfgWinH = 0
 try {
   $c = Get-Content $configFile -Raw | ConvertFrom-Json
   if ($c) {
     if ($c.centerXOffset -ne $null) { $script:centerXOffset = [int]$c.centerXOffset }
-    if ($c.bottomMargin -ne $null) { $script:bottomMargin = [int]$c.bottomMargin }
+    if ($c.bottomMargin -ne $null) { } # v0.10 旧参数,已废弃(保留容错不报错)
+    if ($c.composerHeightPx -ne $null) { $script:composerHeightPx = [int]$c.composerHeightPx }
+    if ($c.composerHalfWidthPx -ne $null) { $script:composerHalfWidthPx = [int]$c.composerHalfWidthPx }
+    if ($c.gapAbovePx -ne $null) { $script:gapAbovePx = [int]$c.gapAbovePx }
+    if ($c.showMaxComposerPx -ne $null) { $script:showMaxComposerPx = [int]$c.showMaxComposerPx }
     if ($c.winW) { $script:cfgWinW = [int]$c.winW }
     if ($c.winH) { $script:cfgWinH = [int]$c.winH }
   }
 } catch { }
 
-# ---- 字号:定死 12px(不做跟随) ----
+# ---- 尺寸:B+E1 双胶囊(v0.11 定死,不走字号伸缩;物理像素) ----
 $script:dpr = 1.75
-$script:stripCssPx = 12
+$script:stripCssPx = 11           # 胶囊字号 11css(记录用,尺寸不再由它推导)
 function Update-StripMetrics {
-  # 条带窗口尺寸随字号伸缩(物理像素);文字底对齐,富余高度在文字上方
+  # 双胶囊 ≈460 物理宽;窗体右对齐内容,富余向左延伸(透明不可见)
   if ($script:cfgWinW -gt 0) { $script:winW = $script:cfgWinW }
-  else { $script:winW = [int][Math]::Round($script:stripCssPx * $script:dpr * 40) }
+  else { $script:winW = 600 }
   if ($script:cfgWinH -gt 0) { $script:winH = $script:cfgWinH }
-  else { $script:winH = [int][Math]::Max(44, [Math]::Round($script:stripCssPx * $script:dpr * 1.8)) }
+  else { $script:winH = 52 }      # 胶囊 42 + 上下余量
 }
 $script:winW = 840; $script:winH = 48
 Update-StripMetrics
@@ -90,7 +110,10 @@ Add-Type -Namespace StatsNative -Name Win -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
 [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
 [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+[DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
+[DllImport("user32.dll")] public static extern int GetDpiForWindow(IntPtr h);
 [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+[StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
 [DllImport("user32.dll")] public static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc proc, uint pid, uint idObject, uint flags);
 public delegate void WinEventProc(IntPtr hHook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
 [DllImport("user32.dll")] public static extern bool UnhookWinEvent(IntPtr hHook);
@@ -299,12 +322,14 @@ public static class StatsHost {
   [DllImport("user32.dll", EntryPoint = "SetWinEventHook")] private static extern IntPtr SetWinEventHook2(uint min, uint max, IntPtr mod, FollowProc proc, uint pid, uint idObject, uint flags);
   [DllImport("user32.dll", EntryPoint = "UnhookWinEvent")] private static extern bool UnhookWinEvent2(IntPtr h);
   private static IntPtr _zHwnd;
-  private static int _cxOff, _bMargin, _fwW, _fwH;
+  private static int _offX, _offY, _fwW, _fwH;
   private static FollowProc _followProc;
   private static IntPtr _locHook;
 
-  public static void SetFollowParams(IntPtr z, int cx, int bottomMargin, int w, int h) {
-    _zHwnd = z; _cxOff = cx; _bMargin = bottomMargin; _fwW = w; _fwH = h;
+  // v0.12:跟随参数统一为「窗口相对偏移」——基线常量与 CDP 实时几何都由 PS1 换算成偏移喂入,
+  // 窗口拖动回调按最新偏移贴住,高度感知不因窗口移动而丢失
+  public static void SetFollowParams(IntPtr z, int offX, int offY, int w, int h) {
+    _zHwnd = z; _offX = offX; _offY = offY; _fwW = w; _fwH = h;
   }
   public static void HookFollowNow() {
     if (_locHook != IntPtr.Zero) { try { UnhookWinEvent2(_locHook); } catch { } _locHook = IntPtr.Zero; }
@@ -331,9 +356,11 @@ public static class StatsHost {
   private static void OnLocChange(IntPtr hHook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time) {
     try {
       if (_zHwnd == IntPtr.Zero || _hwnd == IntPtr.Zero) return;
+      if (hwnd != _zHwnd) return;   // v0.12.3:只认主窗口自身;侧栏切换重排会触发其它子 HWND 的
+                                    // LOCATIONCHANGE,不滤则按旧烘焙偏移瞬移 = 抖动
       ZRECT r; GetWindowRect2(_zHwnd, out r);
-      int x = r.Left + (r.Right - r.Left) / 2 + _cxOff - _fwW / 2;
-      int y = VisibleBottom() - _bMargin - _fwH;   // 底边锚定:条带底缘 = 可视底边 - margin
+      int x = r.Left + _offX;                          // v0.12 统一偏移(基线/CDP 同源)
+      int y = VisibleBottom() - _offY - _fwH;
       // WinEvent 回调里禁止同步消息类 API(重入会破坏内部状态)→ 只投递,
       // 移动在自家 WndProc 里做;投递消息在下一轮泵即处理,仍是帧级
       PostMessageW(_hwnd, WM_APP_FOLLOW, (IntPtr)x, (IntPtr)y);
@@ -391,7 +418,7 @@ $screenH = [StatsNative.Win]::GetSystemMetrics(1)
 $initX = $screenW - $script:winW - 40
 $initY = $screenH - $script:winH - 80
 
-WLog ('boot: init ' + $initX + ',' + $initY + ' ' + $script:winW + 'x' + $script:winH + ' cx=' + $script:centerXOffset + ' bm=' + $script:bottomMargin + ' font=fixed12')
+WLog ('boot: init ' + $initX + ',' + $initY + ' ' + $script:winW + 'x' + $script:winH + ' cx=' + $script:centerXOffset + ' halfW=' + $script:composerHalfWidthPx + ' compH=' + $script:composerHeightPx + ' showMax=' + $script:showMaxComposerPx + ' v0.12-B+E1')
 [StatsHost]::Init($initX, $initY, $script:winW, $script:winH, (Join-Path $dotZcode 'stats-widget-wv2'), ('file:///' + ($script:pageFile -replace '\\', '/')))
 # Ctrl+Alt+S:显隐开关(MOD_ALT 0x1 | MOD_CONTROL 0x2,VK_S 0x53)
 [void][StatsNative.Win]::RegisterHotKey([StatsHost]::Handle, 0xB002, 0x3, 0x53)
@@ -400,9 +427,10 @@ WLog ('boot: init ' + $initX + ',' + $initY + ' ' + $script:winW + 'x' + $script
   if ([StatsHost]::Visible) { [StatsHost]::Hide() } else { [StatsHost]::Show() }
 }
 
-# ---- 页面消息:仅日志 ----
+# ---- 页面消息:回执日志(主题应用等) ----
 [StatsHost]::OnMessage = {
   param($msg)
+  if ($msg -like '*theme*') { WLog ('page-ack: ' + $msg) }
 }
 
 # =====================================================================
@@ -413,6 +441,18 @@ $script:zcodeHwnd = [IntPtr]::Zero
 $script:followHooks = @()
 $script:winEventProc = $null
 $script:rescanBusy = $false
+# v0.12 CDP 探锚通道(anchor-probe.mjs 原子写;陈旧 >2s 视为不可用,落基线)
+$script:anchorFile = Join-Path $dotZcode 'stats-widget-anchor.json'
+$script:lastAnchorWrite = [datetime]::MinValue
+$script:lastAnchorCheck = (Get-Date).AddSeconds(-1)
+$script:cdpShown = $true
+$script:anchorWasPresent = $false
+$script:cdpActive = $false
+$script:lastTheme = ''
+$script:tgX = 0; $script:tgY = 0; $script:tgVisible = $true
+$script:curX = $null; $script:curY = $null
+$script:lastZL = [int]::MinValue; $script:lastZT = [int]::MinValue
+$script:hadCdpOnce = $false; $script:lastGoodX = 0; $script:lastGoodY = 0; $script:lastCdpGood = [datetime]::MinValue
 
 function Find-ZcodeWindow([int]$targetPid) {
   $best = [IntPtr]::Zero; $bestArea = 0
@@ -438,15 +478,76 @@ function Get-VisibleBottom {
   [StatsNative.Win]::GetWindowRect($script:zcodeHwnd, [ref]$r) | Out-Null
   return $r.Bottom
 }
+function Get-TargetPosition {
+  # v0.12.2 目标位置 + 可见性:UIA 探锚(anchor-probe-ui.ps1,物理屏坐标,文件 <2s 新鲜)→
+  # 右缘/上沿实时跟随 composer;否则基线常量(v0.11 公式)。
+  # 锚契约:{"mode":"phys","right":R,"top":T,"height":H}(composer form 近似,editor+内距)
+  $useCdp = $false; $ar = 0.0; $at = 0.0; $ah = 0.0
+  try {
+    if (Test-Path $script:anchorFile) {
+      $fi = Get-Item $script:anchorFile -ErrorAction SilentlyContinue
+      if ($fi -and ((New-TimeSpan $fi.LastWriteTime (Get-Date)).TotalMilliseconds -lt 2000)) {
+        $a = Get-Content $script:anchorFile -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+        if ($a -and $a.mode -eq 'phys' -and $a.right -gt 100 -and $a.height -gt 40 -and -not $a.none) { $ar = [double]$a.right; $at = [double]$a.top; $ah = [double]$a.height; $useCdp = $true }
+      }
+    }
+  } catch { }
+  if ($useCdp) {
+    $x = [int]$ar - $script:winW                                  # 右缘贴 composer 右缘
+    $y = [int]$at - $script:gapAbovePx - $script:winH             # 底缘贴 composer 上沿 - gap
+    # 出现时机状态机:超高隐藏(滞回 24px),回落恢复
+    if ($script:cdpShown) {
+      if ($ah -gt ($script:showMaxComposerPx + 24)) { $script:cdpShown = $false; WLog ('cdp hide: composerH=' + $ah) }
+    } elseif ($ah -le $script:showMaxComposerPx) { $script:cdpShown = $true; WLog ('cdp show: composerH=' + $ah) }
+    # v0.12.3 主题推送:探针采样编辑区亮度 → 页面切浅/深配色
+    if ($a.theme -ne $script:lastTheme -and ($a.theme -eq 'light' -or $a.theme -eq 'dark')) {
+      $script:lastTheme = $a.theme
+      WLog ('theme push: ' + $a.theme)
+      try { [StatsHost]::PostJson('{"type":"theme","v":"' + $a.theme + '"}') } catch { WLog ('theme push THREW ' + $_.Exception.Message) }
+    }
+    $script:cdpActive = $true
+    $script:hadCdpOnce = $true; $script:lastGoodX = $x; $script:lastGoodY = $y; $script:lastCdpGood = Get-Date
+    return @{ x = $x; y = $y; visible = $script:cdpShown }
+  }
+  $script:cdpActive = $false
+  # 锚暂断(探针自愈接力/预热,通常 1-2s):10s 内有过 CDP 几何 → 保持原位,输入框没动就不滑走
+  if ($script:hadCdpOnce -and ((Get-Date) - $script:lastCdpGood).TotalMilliseconds -lt 10000) {
+    return @{ x = $script:lastGoodX; y = $script:lastGoodY; visible = $script:cdpShown }
+  }
+  $r = New-Object StatsNative.Win+RECT
+  [StatsNative.Win]::GetWindowRect($script:zcodeHwnd, [ref]$r) | Out-Null
+  $x = $r.Left + [int](($r.Right - $r.Left) / 2) + $script:centerXOffset + $script:composerHalfWidthPx - $script:winW
+  $y = (Get-VisibleBottom) - $script:bandFromBottom - $script:composerHeightPx - $script:gapAbovePx - $script:winH
+  return @{ x = $x; y = $y; visible = $true }
+}
+function Update-FollowParamsXY([int]$x, [int]$y) {
+  # C# 帧级跟随吃「窗口相对偏移」:滑翔时同步烘焙"当前位",OnLocChange 抢拍也落在滑翔路径上
+  $r = New-Object StatsNative.Win+RECT
+  [StatsNative.Win]::GetWindowRect($script:zcodeHwnd, [ref]$r) | Out-Null
+  $offY = (Get-VisibleBottom) - $y - $script:winH
+  try { [StatsHost]::SetFollowParams($script:zcodeHwnd, ($x - $r.Left), $offY, $script:winW, $script:winH) } catch { }
+}
 function Position-Follow {
   if (([int64]$script:zcodeHwnd) -eq 0) { return }
   if (-not [StatsNative.Win]::IsWindow($script:zcodeHwnd)) { return }
-  $r = New-Object StatsNative.Win+RECT
-  [StatsNative.Win]::GetWindowRect($script:zcodeHwnd, [ref]$r) | Out-Null
-  # 水平 = 窗口中心 + 输入框偏移;垂直 = 可视帧底边 - margin(底缘锚定)
-  $x = $r.Left + [int](($r.Right - $r.Left) / 2) + $script:centerXOffset - [int]($script:winW / 2)
-  $y = (Get-VisibleBottom) - $script:bottomMargin - $script:winH
-  [StatsHost]::MoveTo($x, $y)
+  $t = Get-TargetPosition
+  $script:tgX = $t.x; $script:tgY = $t.y; $script:tgVisible = $t.visible
+  if (-not $t.visible) { if ([StatsHost]::Visible) { [StatsHost]::Hide() }; return }
+  if (-not [StatsHost]::Visible) {
+    [StatsHost]::Show()
+    # 从隐藏恢复:直接吸附目标位,不做滑翔;烘焙目标偏移供 C# 帧级跟随
+    $script:curX = $t.x; $script:curY = $t.y
+    Update-FollowParamsXY $t.x $t.y
+    return
+  }
+  # 常规态:只烘焙滑翔当前位置(终值偏移由滑翔收敛后烘焙),否则 OnLocChange 会按
+  # 终值瞬移、滑翔又拉回 —— 侧栏切换时的抖动根源
+  if ($script:curX -eq $null) {
+    # 首个目标:必须落位(滑翔块看到 cur==tg 会以为已到位而永不移动)
+    $script:curX = $t.x; $script:curY = $t.y
+    [StatsHost]::MoveTo($t.x, $t.y)
+  }
+  Update-FollowParamsXY $script:curX $script:curY
 }
 function Hook-FollowEvents {
   foreach ($h in $script:followHooks) { try { [StatsNative.Win]::UnhookWinEvent($h) | Out-Null } catch { } }
@@ -469,11 +570,9 @@ function Attach-Zcode {
   Hook-FollowEvents
   Position-Follow
   try { [void][StatsNative.Win]::SetOwner(([StatsHost]::Handle), $hwnd) } catch { }
-  # 帧级跟随:LOCATIONCHANGE 回调里直接 SetWindowPos(C# 侧,零定时器延迟)
-  try {
-    [StatsHost]::SetFollowParams($hwnd, $script:centerXOffset, $script:bottomMargin, $script:winW, $script:winH)
-    [StatsHost]::HookFollowNow()
-  } catch { WLog ('hook-follow THREW: ' + $_.Exception.Message) }
+  # 帧级跟随:LOCATIONCHANGE 回调里直接 SetWindowPos(C# 侧,零定时器延迟);
+  # 偏移量由 Position-Follow → Update-FollowParams 统一喂入(基线/CDP 同源)
+  try { [StatsHost]::HookFollowNow() } catch { WLog ('hook-follow THREW: ' + $_.Exception.Message) }
   return $true
 }
 function Detach-Zcode {
@@ -515,18 +614,66 @@ $WINEVENT_OUTOFCONTEXT = 0x0000; $OBJID_WINDOW = 0
 $followTimer = New-Object System.Windows.Threading.DispatcherTimer
 $followTimer.Interval = [TimeSpan]::FromMilliseconds(33)
 $followTimer.Add_Tick({
-  if ([StatsState]::FollowDirty -eq 1) {
-    [StatsState]::FollowDirty = 0
-    if (([int64]$script:zcodeHwnd) -ne 0 -and [StatsNative.Win]::IsWindow($script:zcodeHwnd)) {
-      if ([StatsNative.Win]::IsIconic($script:zcodeHwnd) -or (-not [StatsNative.Win]::IsWindowVisible($script:zcodeHwnd))) {
-        if ([StatsHost]::Visible) { [StatsHost]::Hide() }
-      }
-      else {
-        if (-not [StatsHost]::Visible) { [StatsHost]::Show() }
-        Position-Follow
+  try {
+    # v0.12:锚文件监听(100ms 一次 stat)。三类变化都要置脏:
+    #   ① mtime 变了(新 rect);② 文件消失(探锚死/清场 → 回落基线);③ CDP 激活中但 >2s 无心跳(陈旧 → 回落基线)
+    if (((Get-Date) - $script:lastAnchorCheck).TotalMilliseconds -ge 100) {
+      $script:lastAnchorCheck = Get-Date
+      try {
+        $present = Test-Path $script:anchorFile
+        if ($present) {
+          $lw = (Get-Item $script:anchorFile -ErrorAction SilentlyContinue).LastWriteTimeUtc
+          if ($lw -and $lw -ne $script:lastAnchorWrite) { $script:lastAnchorWrite = $lw; [StatsState]::FollowDirty = 1 }
+          elseif ($script:cdpActive -and $lw -and ((New-TimeSpan $lw (Get-Date).ToUniversalTime()).TotalMilliseconds -gt 2000)) { [StatsState]::FollowDirty = 1 }
+        } elseif ($script:anchorWasPresent) {
+          $script:lastAnchorWrite = [datetime]::MinValue
+          [StatsState]::FollowDirty = 1
+        }
+        $script:anchorWasPresent = $present
+      } catch { }
+    }
+    if ([StatsState]::FollowDirty -eq 1) {
+      [StatsState]::FollowDirty = 0
+      if (([int64]$script:zcodeHwnd) -ne 0 -and [StatsNative.Win]::IsWindow($script:zcodeHwnd)) {
+        if ([StatsNative.Win]::IsIconic($script:zcodeHwnd) -or (-not [StatsNative.Win]::IsWindowVisible($script:zcodeHwnd))) {
+          if ([StatsHost]::Visible) { [StatsHost]::Hide() }
+        }
+        else {
+          Position-Follow   # 更新目标/可见性并喂 C# 偏移;移动由下方滑翔块执行(v0.12.3)
+        }
       }
     }
-  }
+    # v0.12.3 滑翔:每个 tick 向目标走 45%,2px 内吸附——布局切换从"闪现"变 ~200ms 滑翔。
+    # 窗口被拖动/缩放时跳过(C# 帧级偏移已贴住,且本 tick 目标可能尚未刷新),并同步吸附。
+    if (([int64]$script:zcodeHwnd) -ne 0 -and [StatsNative.Win]::IsWindow($script:zcodeHwnd)) {
+      $zr = New-Object StatsNative.Win+RECT
+      [StatsNative.Win]::GetWindowRect($script:zcodeHwnd, [ref]$zr) | Out-Null
+      $windowMoved = ($zr.Left -ne $script:lastZL -or $zr.Top -ne $script:lastZT)
+      $script:lastZL = $zr.Left; $script:lastZT = $zr.Top
+      if ($windowMoved) {
+        # 同步 cur 到浮标实际矩形(而非目标):窗口被拖动时 C# 已贴住,cur 若同步到
+        # 未刷新的目标会让滑翔误判"已到位"而卡死
+        $wr = New-Object StatsNative.Win+RECT
+        [StatsNative.Win]::GetWindowRect([StatsHost]::Handle, [ref]$wr) | Out-Null
+        $script:curX = $wr.Left; $script:curY = $wr.Top
+      }
+      if ($script:tgVisible -and [StatsHost]::Visible -and -not $windowMoved) {
+        if ($script:curX -eq $null) { $script:curX = $script:tgX; $script:curY = $script:tgY }
+        $dx = $script:tgX - $script:curX; $dy = $script:tgY - $script:curY
+        if ([Math]::Abs($dx) -lt 2 -and [Math]::Abs($dy) -lt 2) {
+          if ($dx -ne 0 -or $dy -ne 0) {
+            $script:curX = $script:tgX; $script:curY = $script:tgY
+            [StatsHost]::MoveTo($script:curX, $script:curY)
+            Update-FollowParamsXY $script:curX $script:curY
+          }
+        } else {
+          $script:curX += [int][Math]::Round($dx * 0.45); $script:curY += [int][Math]::Round($dy * 0.45)
+          [StatsHost]::MoveTo($script:curX, $script:curY)
+          Update-FollowParamsXY $script:curX $script:curY   # 抢拍落在滑翔路径上,不瞬移
+        }
+      }
+    }
+  } catch { }
 })
 $followTimer.Start()
 
@@ -552,6 +699,10 @@ $rescanTimer.Add_Tick({
   } finally { $script:rescanBusy = $false }
 })
 $rescanTimer.Start()
+
+# v0.12:CDP 探锚(独立 node 进程,经 vbs 逃 Job;端口够不到 60s 自退,宿主下次启动再拉)
+$probeVbs = Join-Path $PSScriptRoot 'anchor-probe-launch.vbs'
+if (Test-Path $probeVbs) { try { Start-Process wscript.exe -ArgumentList ('"' + $probeVbs + '"') -WindowStyle Hidden } catch { WLog ('probe-launch THREW ' + $_.Exception.Message) } }
 
 # 进程退出兜底(正路 = Stop-Widget 显式清场)
 [AppDomain]::CurrentDomain.add_ProcessExit({
