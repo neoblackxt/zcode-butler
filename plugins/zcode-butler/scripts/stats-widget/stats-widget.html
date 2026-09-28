@@ -111,19 +111,21 @@
     <span class="pill"><span class="bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><b class="num" id="tps">—</b><span class="unit" id="tpsUnit">tok/s</span></span>
   </div>
 <script>
-  // ---- 四态数值动画(当前为假数据周期演示;真数据接入时由宿主 PostJson
-  //      {"type":"state","v":"waiting|streaming|done|idle"} + 数值驱动,语法不变) ----
+  // ---- v0.12.4:默认常驻 idle(数值 —、点灰、火花线趴平)——空白会话不再轮播假数据,
+  //      治"一闪一闪/数据消失"。四态语法保留:v0.13 真数据由宿主 PostJson 驱动——
+  //      {"type":"state","v":"idle|waiting|streaming|done"} + {"type":"value","k":"ttft|tps","v":数值};
+  //      调试发 {"type":"demo"} 可临时开一轮轮播。 ----
   var ttftEl = document.getElementById('ttft');
   var tpsEl = document.getElementById('tps');
   var tpsUnit = document.getElementById('tpsUnit');
-  var state = 'idle', phaseEnd = 0, ttft = 0, tps = 38.4;
+  var state = 'idle', phaseEnd = Infinity, ttft = 0, tps = 38.4, demo = false;
 
   function rnd(a, b) { return a + Math.random() * (b - a); }
   function now() { return performance.now(); }
   function setState(s, holdMs) {
     state = s;
     document.body.dataset.state = s;
-    if (s === 'idle') { ttftEl.textContent = '—'; tpsEl.textContent = '—'; phaseEnd = now() + 6500; }
+    if (s === 'idle') { ttftEl.textContent = '—'; tpsEl.textContent = '—'; phaseEnd = demo ? now() + 6500 : Infinity; }
     if (s === 'waiting') { ttft = 0; tpsEl.textContent = '—'; phaseEnd = now() + 900; }
     if (s === 'streaming') { ttft = +rnd(0.42, 1.30).toFixed(2); ttftEl.textContent = ttft.toFixed(2) + 's'; tps = rnd(30, 50); phaseEnd = now() + holdMs; }
     if (s === 'done') { phaseEnd = now() + 2500; }
@@ -136,6 +138,7 @@
   }
 
   setInterval(function () {
+    if (!demo) return;
     if (state === 'waiting') { ttft += 0.1; ttftEl.textContent = ttft.toFixed(2) + 's'; }
     if (state === 'streaming') {
       tps = Math.min(55, Math.max(28, tps + rnd(-2.4, 2.4)));
@@ -144,15 +147,22 @@
     if (now() >= phaseEnd) setState(next());
   }, 100);
 
-  // ---- 主题:宿主 PostJson {"type":"theme","v":"light|dark"} ----
+  // ---- 宿主消息:主题 / 状态 / 数值 / 演示 ----
   try {
     window.chrome.webview.addEventListener('message', function (e) {
       var m = e.data;
       if (typeof m === 'string') { try { m = JSON.parse(m); } catch (err) { return; } }
-      if (m && m.type === 'theme' && (m.v === 'light' || m.v === 'dark')) {
+      if (!m || !m.type) return;
+      if (m.type === 'theme' && (m.v === 'light' || m.v === 'dark')) {
         document.body.dataset.theme = m.v;
         try { chrome.webview.postMessage('{"type":"themeApplied","v":"' + m.v + '"}'); } catch (err) { }
       }
+      if (m.type === 'state' && ['idle', 'waiting', 'streaming', 'done'].indexOf(m.v) >= 0) {
+        setState(m.v, m.holdMs || 2500);
+      }
+      if (m.type === 'value' && m.k === 'ttft') ttftEl.textContent = (+m.v).toFixed(2) + 's';
+      if (m.type === 'value' && m.k === 'tps') tpsEl.textContent = (+m.v).toFixed(1);
+      if (m.type === 'demo') { demo = true; if (state === 'idle') setState('waiting'); }
     });
   } catch (err) { }
 

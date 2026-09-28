@@ -479,20 +479,35 @@ function Get-VisibleBottom {
   return $r.Bottom
 }
 function Get-TargetPosition {
-  # v0.12.2 目标位置 + 可见性:UIA 探锚(anchor-probe-ui.ps1,物理屏坐标,文件 <2s 新鲜)→
-  # 右缘/上沿实时跟随 composer;否则基线常量(v0.11 公式)。
-  # 锚契约:{"mode":"phys","right":R,"top":T,"height":H}(composer form 近似,editor+内距)
-  $useCdp = $false; $ar = 0.0; $at = 0.0; $ah = 0.0
+  # v0.12.4 目标位置 + 可见性:锚文件三态——
+  #   ① fresh + geometry → 跟随(CDP 分支);② fresh + none → 隐藏(输入框不在:设置/搜索/插件市场页或被覆盖);
+  #   ③ 缺失/陈旧 → 通道失联:10s 内保持原位,超时落基线常量(v0.11 公式)
+  $useCdp = $false; $none = $false; $ar = 0.0; $at = 0.0; $ah = 0.0
   try {
     if (Test-Path $script:anchorFile) {
       $fi = Get-Item $script:anchorFile -ErrorAction SilentlyContinue
       if ($fi -and ((New-TimeSpan $fi.LastWriteTime (Get-Date)).TotalMilliseconds -lt 2000)) {
         $a = Get-Content $script:anchorFile -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
-        if ($a -and $a.mode -eq 'phys' -and $a.right -gt 100 -and $a.height -gt 40 -and -not $a.none) { $ar = [double]$a.right; $at = [double]$a.top; $ah = [double]$a.height; $useCdp = $true }
+        if ($a -and $a.mode -eq 'phys') {
+          if ($a.none) { $none = $true; $useCdp = $true }
+          elseif ($a.right -gt 100 -and $a.height -gt 40) { $ar = [double]$a.right; $at = [double]$a.top; $ah = [double]$a.height; $useCdp = $true }
+        }
       }
     }
   } catch { }
   if ($useCdp) {
+    if ($none) {
+      # ①a 探针 UIA 劣化窗口(载荷带 n:0,composer 其实在)→ 保持原位,不隐藏不滑走
+      if ($a.n -eq 0) {
+        $script:cdpActive = $true
+        if (-not $script:hadCdpOnce) { return @{ visible = $false } }   # 预热期就劣化:尚无几何可保持 → 藏
+        return @{ x = $script:lastGoodX; y = $script:lastGoodY; visible = $script:cdpShown }
+      }
+      # ①b 真 none(设置/搜索/自动化/插件市场等页面,输入框不在或被覆盖)→ 隐藏
+      $script:cdpActive = $true
+      return @{ visible = $false }
+    }
+    $x = [int]$ar - $script:winW                                  # 右缘贴 composer 右缘
     $x = [int]$ar - $script:winW                                  # 右缘贴 composer 右缘
     $y = [int]$at - $script:gapAbovePx - $script:winH             # 底缘贴 composer 上沿 - gap
     # 出现时机状态机:超高隐藏(滞回 24px),回落恢复

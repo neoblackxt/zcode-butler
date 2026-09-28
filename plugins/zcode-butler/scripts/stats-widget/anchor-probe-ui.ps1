@@ -84,17 +84,21 @@ function Get-Theme($r) {
   $med = $valid[[int][math]::Floor($valid.Count / 2)]
   return $(if ($med -gt 140) { 'light' } else { 'dark' })
 }
-# debounce: only switch the committed theme after 3 consecutive identical classifications
+# debounce: 20 采滑动窗口 ≥16 一致才切 + 切换后 5s 驻留(打字/光标/选区压采样点的瞬态被滤掉)
 $script:committedTheme = 'dark'
-$script:pendingTheme = ''
-$script:pendingCount = 0
+$script:themeWin = New-Object System.Collections.Queue
+$script:lastThemeSwitch = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
 function Commit-Theme([string]$sampled) {
-  if ($sampled -eq $script:committedTheme) { $script:pendingTheme = ''; $script:pendingCount = 0; return $script:committedTheme }
-  if ($sampled -eq $script:pendingTheme) { $script:pendingCount++ } else { $script:pendingTheme = $sampled; $script:pendingCount = 1 }
-  if ($script:pendingCount -ge 3) {
-    $script:committedTheme = $sampled
-    $script:pendingTheme = ''; $script:pendingCount = 0
-  }
+  $script:themeWin.Enqueue($sampled)
+  while ($script:themeWin.Count -gt 20) { [void]$script:themeWin.Dequeue() }
+  $now = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+  if ($now - $script:lastThemeSwitch -lt 5000) { return $script:committedTheme }
+  $light = 0
+  foreach ($t in $script:themeWin) { if ($t -eq 'light') { $light++ } }
+  $new = $script:committedTheme
+  if ($script:committedTheme -eq 'dark' -and $light -ge 16) { $new = 'light' }
+  if ($script:committedTheme -eq 'light' -and ($script:themeWin.Count - $light) -ge 16) { $new = 'dark' }
+  if ($new -ne $script:committedTheme) { $script:committedTheme = $new; $script:lastThemeSwitch = $now }
   return $script:committedTheme
 }
 
@@ -102,7 +106,11 @@ $classCond = New-Object System.Windows.Automation.PropertyCondition(
   [System.Windows.Automation.AutomationElement]::ClassNameProperty, $editorClass)
 $btnCond = New-Object System.Windows.Automation.PropertyCondition(
   [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+$imgCond = New-Object System.Windows.Automation.PropertyCondition(
+  [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Image)
 $script:misses = 0
+$script:tick = 0
+$script:chipTop = $null
 
 function Get-ZCodeRect {
   $zr = New-Object System.Drawing.Rectangle 0, 0, 0, 0
@@ -147,40 +155,72 @@ while ($true) {
       } catch { }
     }
     if ($best) {
-      Emit ($best.X + $best.Width + 21) ($best.Y - 21) ($best.Height + $EDITOR_TO_FORM) (Commit-Theme (Get-Theme $best))
-      $script:misses = 0
-    } else {
-      # 降级锚:回合运行中 composer 非编辑态,Edit 节点掉出 a11y 树(Edit 数=0 属正常)。
-      # 改锚工具条最右 Button(发送/加入队列):右缘+21 = form 右缘,底缘+21 = form 底缘,
-      # 高度按运行期恒 1 行 = 182。主题采样用按钮矩形(同在 composer 内)。
-      $zr = Get-ZCodeRect
-      $bandTop = $zr.Bottom - 450
-      $minX = $zr.Left + [int]($zr.Width / 2) - 100
-      $btns = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)
-      $fb = $null; $fbRight = -1.0
-      foreach ($b in $btns) {
+      # v0.12.4:附件行(topContent)在 editor 上方,editor 锚看不到会叠进行内。
+      # 每 5 轮一次 Image 带状扫描(行内 [editor.top-320, editor.top-24] × form 列宽),
+      # 命中则 form 顶 = chips 顶 − 21(胶囊缩略图必然是 Image 角色)。
+      $script:tick++
+      if (($script:tick % 5) -eq 1 -and $root) {
         try {
-          $r = $b.Current.BoundingRectangle
-          if ($r.Y -gt $bandTop -and $r.X -gt $minX -and ($r.X + $r.Width) -gt $fbRight -and $r.Width -lt 400) { $fb = $r; $fbRight = $r.X + $r.Width }
+          $imgs = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $imgCond)
+          $chipTop = 1e9
+          foreach ($im in $imgs) {
+            try {
+              $r = $im.Current.BoundingRectangle
+              if ($r.Y -gt ($best.Y - 320) -and $r.Y -lt ($best.Y - 24) -and $r.X -gt ($best.X - 40) -and ($r.X + $r.Width) -lt ($best.X + $best.Width + 40) -and $r.Y -lt $chipTop) { $chipTop = $r.Y }
+            } catch { }
+          }
+          if ($chipTop -lt 1e8) { $script:chipTop = $chipTop } else { $script:chipTop = $null }
         } catch { }
       }
-      if ($fb -and $fbRight -gt $minX) {
-        Emit ($fbRight + 21) ($fb.Y + $fb.Height + 21 - 182) 182 (Commit-Theme (Get-Theme $fb))
-        $script:misses = 0
-      } else {
-        # a11y tree warm-up takes a few seconds after launch; hide until it shows up
+      $formTopSrc = $best.Y
+      if ($script:chipTop -ne $null -and $script:chipTop -lt $best.Y - 10) { $formTopSrc = $script:chipTop }
+      Emit ($best.X + $best.Width + 21) ($formTopSrc - 21) (($best.Y + $best.Height + 91) - ($formTopSrc - 21)) (Commit-Theme (Get-Theme $best))
+      $script:misses = 0
+    } else {
+      # Edit 掉出 a11y 树的三种情形:①回合运行 composer 非编辑态(正常,降级锚顶上);
+      # ②非聊天页(设置/搜索/插件市场,无 composer)→ none → 浮标隐藏;③UIA 劣化整树空 → 计数自愈
+      $btns = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)
+      $btnCount = -1
+      try { $btnCount = $btns.Count } catch { }
+      if ($btnCount -le 0) {
+        # ③ 树空/剪枝:计 miss,24 轮(~3s)释放锁自愈接力
         $script:misses++
-        $n = -1
-        try { $n = $edits.Count } catch { }
-        $j = '{{"t":{0},"mode":"phys","none":true,"n":{1}}}' -f [DateTimeOffset]::Now.ToUnixTimeMilliseconds(), $n
+        $eCnt = -1
+        try { $eCnt = $edits.Count } catch { }
+        $j = '{{"t":{0},"mode":"phys","none":true,"n":0,"e":{1}}}' -f [DateTimeOffset]::Now.ToUnixTimeMilliseconds(), $eCnt
         Set-Content -Path $out -Value $j -Encoding Ascii
-      # UIA 客户端连接会劣化(实测:老进程对活着的窗口返回空树,新进程立即可见)。
-      # 连续 ~5s 找不到 editor → 释放锁、拉起干净的自己、退场(先放锁再退,继任才能接管)
-      if ($script:misses -ge 40) {
-        try { $script:lockStream.Close() } catch { }
-        Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath) -WindowStyle Hidden
-        exit 0
-      }
+        if ($script:misses -ge 24) {
+          try { $script:lockStream.Close() } catch { }
+          Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath) -WindowStyle Hidden
+          exit 0
+        }
+      } else {
+        # 门槛:聊天页签名 = composer 工具条「切换模式」按钮在(名字随 UI 语言,中文环境稳定)
+        $nameCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '切换模式')
+        $andCond = New-Object System.Windows.Automation.AndCondition($btnCond, $nameCond)
+        $sig = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $andCond)
+        if (-not $sig) {
+          $j = '{{"t":{0},"mode":"phys","none":true}}' -f [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+          Set-Content -Path $out -Value $j -Encoding Ascii
+        } else {
+          # 降级锚:工具条最右 Button 右缘+21 = form 右缘;高度按运行期恒 1 行 182
+          $zr = Get-ZCodeRect
+          $bandTop = $zr.Bottom - 450
+          $minX = $zr.Left + [int]($zr.Width / 2) - 100
+          $fb = $null; $fbRight = -1.0
+          foreach ($b in $btns) {
+            try {
+              $r = $b.Current.BoundingRectangle
+              if ($r.Y -gt $bandTop -and $r.X -gt $minX -and ($r.X + $r.Width) -gt $fbRight -and $r.Width -lt 400) { $fb = $r; $fbRight = $r.X + $r.Width }
+            } catch { }
+          }
+          if ($fb) {
+            Emit ($fbRight + 21) ($fb.Y + $fb.Height + 21 - 182) 182 (Commit-Theme (Get-Theme $fb))
+          } else {
+            $j = '{{"t":{0},"mode":"phys","none":true}}' -f [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+            Set-Content -Path $out -Value $j -Encoding Ascii
+          }
+        }
       }
     }
   } catch { }
