@@ -20,8 +20,9 @@ zcode-butler 双悬浮窗之二(另一个是右缘「用量面板」butler-widge
 | **探锚** | UIA 无障碍树找 `ClassName='min-h-10 max-h-40…'`(LexicalChatInput 原版类名)的 Edit,**取最底部者**(消息行内编辑同款类名);回合运行中 Edit 掉出 a11y 树时降级锚**工具条最右 Button**(发送/加入队列,右缘+21=form 右缘,高恒 182) |
 | **输出契约** | `{"mode":"phys","right":R,"top":T,"height":H,"theme":"dark|light"}`(物理屏坐标,宿主免换算直用) |
 | **跟随** | 宿主 33ms tick 滑翔插值(每 tick 向目标走 45%,2px 吸附,布局切换 ~200ms 滑翔不闪现);窗口拖动/缩放由 C# WinEvent 帧级跟随按「窗口相对偏移」贴住(滑翔期烘焙当前位,防终值抢拍抖动);OnLocChange 只认主窗口 HWND |
-| **出现时机** | 状态机:composer 高 >312px 隐藏(滞回 24px)、≤288px 恢复;探针失联 ≤10s 保持原位、>10s 落基线常量锚(v0.11 公式,composerHeight=182/halfWidth=841 实测常量,json 可调) |
-| **主题** | 探针采样编辑器右/下留白亮度(避开字形),3 连一致防抖 → 宿主 PostJson `{"type":"theme"}` → 页面切换 zai-light/zai-dark 双配色 |
+| **出现时机** | 状态机:composer 高 >312px 隐藏(滞回 24px)、≤288px 恢复;**输入框不在(设置/搜索/自动化/插件市场等页面或被覆盖)直接隐藏**;附件行(topContent)计入探测(Image 角色带状扫描,form 顶=chipsTop−21);探针失联 ≤10s 保持原位、>10s 落基线常量锚(v0.11 公式,composerHeight=182/halfWidth=841 实测常量,json 可调) |
+| **主题** | 探针采样编辑器右/下留白亮度(避开字形),20 采滑动窗口 ≥16 一致 + 切换后 5s 驻留 → 宿主 PostJson `{"type":"theme"}` → 页面切换 zai-light/zai-dark 双配色 |
+| **数值显示(v0.12.4)** | 默认**常驻空闲稳态**(数值 —、点灰、火花线趴平)——空白/非生成会话不轮播不闪现;四态语法由真数据(v0.13 rollout)或宿主 PostJson `{"type":"state"}` 驱动,`{"type":"demo"}` 显式开启轮播演示 |
 | **探针生命周期** | 独占句柄锁(`FileShare.None`,进程死 OS 自动释放,零竞态);UIA 连接劣化(老进程对活窗口返回空树)→ 连续 5s 失锚自愈接力(先放锁再拉继任);ZCode 消失 >10s 自退 |
 
 **为何是 UIA 而非 CDP**:打包版 Electron 41 静默丢弃 `--remote-debugging-port`
