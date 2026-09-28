@@ -28,7 +28,7 @@ plugins/zcode-butler/
     ├── status.mjs          ← 聚合器:--json 统一协议 / --hook 摘要
     ├── chat2doc/           ← extract / format_batch / merge_batch(.py)
     ├── widget/             ← 用量面板悬浮窗(与 stats-widget 的公共机制在 lib/widget-common.ps1,C# 合成宿主为同构副本:改 A 必改 B)
-    └── stats-widget/       ← 会话统计条悬浮窗(同上)
+    └── stats-widget/       ← 性能浮标悬浮窗(v0.12+:输入框右上方 B+E1 双胶囊+UIA 探针自适应;同上公共机制)
 ```
 
 ## 插件生命周期纪律(本地 marketplace,v0.2.0 立规)
@@ -81,6 +81,7 @@ node -e "const a=require('./marketplace.json').plugins[0].version,b=require('./p
 - 开发中的问题按"问题→根因→解决方案→耗时→commit"记开发日志,条目带类型标签([问题][修复][改进][实现][回退][ADR][调整]);关键技术选型记 ADR(背景/选项/决策/后果)
 - 开发日志中反复出现的同类踩坑 → 提炼为规范写入本文件
 - 技术岔路口(选型/换轨/陌生域)先写 docs/knowledge/ 知识地图;里程碑/换轨完成后写 docs/retrospectives/ 复盘(对预测逐条打分)
+- **任务/会话收尾落档检查(强制)**:结束前自检本轮对话是否有未落档的重要内容——代码调整(含缓存/镜像同步与版本)→ 日志条目+WIKI 同步;关键技术决策(即使没改代码)→ 日志 [ADR] 条目;调研结论/通道证伪 → knowledge/ 或日志;用户拍板的取舍 → 记入相关文档的决策节。判定问句:「两周后回看,这次对话里哪句话我现在不写下来就会丢?」有答案就必须落档
 - 各文档视角不同,不互相复制内容
 
 ## AI 协作红线(不要做什么)

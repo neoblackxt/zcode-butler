@@ -37,7 +37,7 @@ Chat2Doc 产物默认输出 `~/Desktop/归档/`;格式规则外置在 `plugins/z
 - 现状解读(唯一真相源)→ [WIKI.md](./WIKI.md)
 - 开发过程记录(唯一时间线)→ [开发日志.md](./开发日志.md)
 - 技术选型(知识地图)→ [docs/knowledge/](./docs/knowledge/) · 项目复盘 → [docs/retrospectives/](./docs/retrospectives/)
-- UI 交互原型 → [docs/ui/](./docs/ui/)(浏览器打开 HTML)
+- UI 原型 → [ZCode UI/](./ZCode%20UI/)(性能浮标八方案原型,浏览器打开 HTML);悬浮窗总览原型未随仓库
 
 ## License
 
