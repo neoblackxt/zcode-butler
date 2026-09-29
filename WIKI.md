@@ -22,7 +22,7 @@
 | `scripts/chat2doc/` | 会话归档流水线:extract.py(rollout JSONL→turns.json,full/delta/tail 缝合+toolCalls 回注)/ format_batch.py(分批+Markdown 防护+ZCode 工具映射)/ merge_batch.py(占位符替换,蓝图 100% 复用)+ 23 个 unittest | ✅ M3 |
 | `scripts/doc-intent.mjs` | 归档意图检测 hook:UserPromptSubmit 主链路(注入任务+消费 intent)/ SessionStart --startup 兜底;10 分钟过期自清 | ✅ M3 |
 | `assets/templates/素材文档.md` | 素材文档格式与摘要规则(外置可编辑,用户改模板即改产出) | ✅ M3 |
-| `scripts/widget/` | WPF 悬浮窗(butler-widget.ps1:三环/渐进 Key 环/铃铛/气泡/齿轮折叠卡/资讯面板/把手/WinEvent 跟随)+ widget-launch.mjs(touch wake + host.json ppid + vbs 冷启动)+ widget-launch.vbs(ASCII 免黑窗) | ✅ M2 |
+| `scripts/widget/` | 用量面板悬浮窗(butler-widget.ps1:C# 合成宿主内联 Add-Type;butler-widget.html:四环/环详情弹框/展开收起/活动提醒)+ stop.ps1(停实例)+ widget-launch.mjs(touch wake + host.json ppid + vbs 冷启动)+ widget-launch.vbs(ASCII 免黑窗) | ✅ M2 |
 | `commands/` | usage / watch / doc / news 四命令 | ✅ M1+M3 |
 | `skills/butler/SKILL.md` | 自然语言主入口(四能力) | ✅ M1+M3 |
 | `hooks/hooks.json` | SessionStart → widget-launch + status.mjs --hook + doc-intent --startup;UserPromptSubmit → doc-intent | ✅ 全量 |
@@ -63,7 +63,7 @@ assets/news.json ──> news.mjs
 
 ### 6. 悬浮窗(as-built,§4 的实现现状)
 
-- 架构(v0.3.0 起,**合成宿主 = 真逐像素透明**;v0.4.0 起同层):`butler-widget.ps1` 内联 C#(`Add-Type`)宿主——原生 Win32 窗口(`WS_POPUP|WS_EX_NOREDIRECTIONBITMAP|WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE`,**不再 WS_EX_TOPMOST**)+ DComp 树(`DCompositionCreateDevice→CreateTargetForHwnd(topmost=TRUE)→CreateVisual→SetRoot`,**`RootVisualTarget` 赋值后必须再 `Commit` 一次**) + `CoreWebView2CompositionController`(DefaultBackgroundColor=Transparent,页面 alpha 原样合成到桌面)。输入:`WM_MOUSE*`→`SendMouseInput`(枚举值=裸 WM 码,Leave=675 特判;滚轮 lParam 屏幕坐标转客户区);光标 `CursorChanged`+WM_SETCURSOR;点击穿透:`WM_NCHITTEST` 按形状掩码(页面 shape 消息的胶囊 810 点+fab 圆)返回 HTCLIENT/HTTRANSPARENT——渲染与命中分离,边缘 AA 保真。PS 侧保留:互斥量/wake/热键/WinEvent 跟随/node 数据链/自存活,窗口操作经 ButlerHost 静态方法(Show/Hide/DragMove;v0.4.6 删 MoveTo,几何统一在 ApplyFollowGeom)
+- 架构(v0.3.0 起,**合成宿主 = 真逐像素透明**;v0.4.0 起同层):`butler-widget.ps1` 内联 C#(`Add-Type`)宿主——原生 Win32 窗口(`WS_POPUP|WS_EX_NOREDIRECTIONBITMAP|WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE`,**不再 WS_EX_TOPMOST**)+ DComp 树(`DCompositionCreateDevice→CreateTargetForHwnd(topmost=TRUE)→CreateVisual→SetRoot`,**`RootVisualTarget` 赋值后必须再 `Commit` 一次**) + `CoreWebView2CompositionController`(DefaultBackgroundColor=Transparent,页面 alpha 原样合成到桌面)。输入:`WM_MOUSE*`→`SendMouseInput`(枚举值=裸 WM 码,Leave=675 特判;滚轮 lParam 屏幕坐标转客户区);光标 `CursorChanged`+WM_SETCURSOR;点击穿透:`WM_NCHITTEST` 按形状掩码(页面 shape 消息的胶囊 810 点+fab 圆+通知卡矩形)返回 HTCLIENT/HTTRANSPARENT——渲染与命中分离,边缘 AA 保真。PS 侧保留:互斥量/wake/热键/WinEvent 跟随/node 数据链/自存活,窗口操作经 ButlerHost 静态方法(Show/Hide/DragMove;v0.4.6 删 MoveTo,几何统一在 ApplyFollowGeom)
 - 渲染层:`butler-widget.html` 用户定稿 UI 原样(浏览器级 AA/过渡动画/任意背景全保真);数据桥不变(status.mjs --json → PostWebMessageAsJson → butlerApply;shape 消息上报掩码几何,**2026-09-15 起全运行时实测零设计坐标常量**——挪动/缩放元素后掩码自动跟随,铁律见 AGENTS.md《三桥铁律》);file:// 防缓存:每次复制随机临时路径加载。**环详情弹窗(v0.4.4;v0.4.8 整体等比例放大 30%)**:悬停任一显示环,环左侧浮现带尖角详情气泡(单 SVG path 投影随形 + 十二芒星 logo);弹窗渲染在胶囊左侧桌面区 → 宿主窗口加宽至 ≈708 物理px(v0.4.8 起随弹框倍率联动,公式 `(265 + 780×1.3 + 60×1.3) × 窗高/2025 × dpr`;纯渲染,弹窗区不在 NCHITTEST 掩码内、页面 pointer-events:none,点击穿透到 ZCode);**弹框全部尺寸经派生单位 `--pu = --u × --pop-scale`(1.3)计,倍率唯一真相源在 HTML CSS,JS 定位与 ps1 窗口宽同源派生**;弹窗文案暂为设计稿演示数据,真实数据分发待接(页面 show(m) 预留分发点);**四环描边三色水位(v0.4.7,按已用额度)**:≤60% 绿 `--ring-ok` / 60–80% 黄 `--ring-warn` / >80% 红 `--ring-low`(无数据回灰 `--label`;`?key=NN` 查询串可预览核验)
 - 依赖关键点:vendored DLL **1.0.4191.47 与系统 Runtime 152.0.4191 配对**(WebView2 Raw 接口 IID 跨 SDK 代不兼容:2739 的 DLL 对 152 运行时报 ICoreWebView2Environment3 cast 失败,实测);原生 loader 仍走 PATH 前置;用户数据目录 `~/.zcode/butler-widget-wv2`
 - 定位与同层(v0.4.0;v0.4.1 补跟随与防崩;v0.4.5 跟随重构;v0.4.7 中心 1/3 锚定+容纳显隐):物理像素域 SetWindowPos;吸附 ZCode 主窗右缘、**胶囊中心 = ZCode 顶 + zcodeH/3(v0.4.7,距底 2/3;中心与范围取形状掩码轮廓运行时实测,几何单点在 C# `ApplyFollowGeom`)**;**容纳判定(v0.4.7)**:中心锚定后整段可见实体(胶囊轮廓+fab 圆)须全在窗内——顶侧越出为绑定约束(阈值 = 1.5×胶囊高,当前 ≈1163 物理px),底侧越出同判;形状未到前按整窗保守(≈1575);`SetHitMask` 收到形状后补算一次——不容纳则整体隐藏并置 `_sizeHidden`,高度恢复由跟随自动重现,手动 Ctrl+Shift+G 隐藏不置位不受干扰,热键显示/wake/重扫均过 `FollowFits()`;**帧级跟随(v0.4.5,C# 侧单一机制)**——ButlerHost 挂 `WINEVENT_OUTOFCONTEXT` 三组钩子共用一个回调:LOCATIONCHANGE→`PostMessage(WM_APP_FOLLOW2)`→WndProc 移动(带 NotifyParentWindowPositionChanged 跨屏重栅格化);MINIMIZE/SHOW/HIDE→`WM_APP_VIS2`→WndProc 查 owner 实时 IsIconic/IsWindowVisible 定显隐(X 关闭=SW_HIDE 驻留托盘时 owned window 不自动隐藏须自行跟);**回调内禁同步消息 API(重入契约)只投递**;旧 33ms 定时器+PS 钩子+ButlerState 脏标志已全套删除,2.5s 重扫仅管生死重吸附;**owned window 同层**——`SetOwner`(GWLP_HWNDPARENT=-8,跨进程)挂 ZCode 主窗:永远在 ZCode 正上方、他窗盖 ZCode 时同被盖、最小化/还原/关窗随毁全由系统托管;**生死绑定**(用户拍板):ZCode 进程退出/自身句柄随 owner 失效 → 悬浮窗进程退出,原"退屏右缘独立存活"降级链删除;**窗口已毁禁碰 WebView2 控制器**(v0.4.1:WM_DESTROY 置 `_destroyed`,`Shutdown()` 跳过 Close,否则原生 AV→WER"已停止工作"弹窗);窗口重建期 2.5s 重扫重吸附;`butler.json widget.dock` 可切;互斥量 `Global\ZCode-Butler-Widget-W`(v0.4.5 换名防句柄继承幽灵持有)
@@ -105,33 +105,15 @@ py chat2doc/merge_batch.py semi-N.md repl-N.txt batch-N.md
 
 | 版本 | 日期 | 一句话 | commit | 详情(开发日志条目) |
 |---|---|---|---|---|
-| v0.5.1 | 2026-09-30 | 活动提醒(提案 C+D)全链落地:收起态弧线变「眼镜」气泡+未读徽标弹簧;有未读点眼镜弹通知卡覆盖(知道了消耗/稍后·Esc 保留),无未读点眼镜=展开面板;宿主 toast 矩形入 MaskHit(卡上可点)+ notify 注入文件通道;插件 0.2.10 三端同步,真机闭环 | ec0715f+dc550ec | 2026-09-30 [实现] v0.5.1 活动提醒(四轮/五轮) |
-| 会话统计条 v0.10 | 2026-09-24 | 入库(双悬浮窗之二):输入框下空带居中,DWM 可视底边锚修状态漂移;SessionStart 钩子接管自启 | 58e6187 | 2026-09-24 [实现] 会话统计条 v0.10 |
+| v0.5.1 | 2026-09-30 | 活动提醒(提案 C+D):收起态眼镜气泡+未读徽标,有未读点眼镜弹通知卡,无未读点眼镜=展开面板 | ec0715f+dc550ec | 2026-09-30 [实现] v0.5.1(四轮/五轮) |
 | v0.13f | 2026-09-30 | 切回已驻留会话不恢复数据(切回时 app log 零事件):UIA 视图通道(侧栏 bg-selected 条目→标题→db 映射)为主信号;实时通道正式停用(两案皆败待官方接口,tok/s 显示会话平均) | 见 2026-09-30 条 | 2026-09-30 [修复] v0.13f |
 | v0.5.0 | 2026-09-30 | 面板展开/收起动效入库(自缓存预览合入):0.62s expo-out 展开 / 0.42s 收起滑出 + 四环错峰归位;齿轮点击切换,状态持久化;宿主零改动(纯水平位移) | 见 2026-09-30 条 | 2026-09-30 [实现] v0.5.0 |
 | v0.13e | 2026-09-30 | 性能浮标真数据入库(自缓存实验线合入):metrics.mjs 双通道(UIA 实时+db 真值);v0.13e 会话切换(session.resumed+db 历史重建) | 见 2026-09-30 条 | 2026-09-30 [实现] v0.13e 入库 |
 | v0.4.10 | 2026-09-30 | fab 齿轮气泡偶发不回退弧线双修:点击后 blur 放焦(:focus-within 钉住)+ NCHITTEST 判透明即补发 MouseLeave(窗内透明区 leave 丢失) | 见 2026-09-30 条 | 2026-09-30 [修复] v0.4.10 |
 | v0.4.9 | 2026-09-30 | 拖动整体移除(用户拍板:面板固定 1/3 锚定);页↔宿主收窄为数据 + 形状上报两桥 | 见 2026-09-30 条 | 2026-09-30 [调整] v0.4.9 |
 | v0.4.8 | 2026-09-29 | 环详情弹框整体等比例放大 30%(`--pu = --u × --pop-scale` 派生,右缘锚点不变向左展开);宿主窗口 577→708 物理px | 见 2026-09-29 条 | 2026-09-29 [调整] v0.4.8 |
+| 会话统计条 v0.10 | 2026-09-24 | 入库(双悬浮窗之二):输入框下空带居中,DWM 可视底边锚修状态漂移;SessionStart 钩子接管自启 | 58e6187 | 2026-09-24 [实现] 会话统计条 v0.10 |
 | v0.4.7 | 2026-09-23 | 锚点校正:胶囊中心锚窗高 1/3(像素实测对齐参考图);四环全量已用额度三色 | f733529 | 2026-09-23 [调整] v0.4.7 |
 | v0.4.6 | 2026-09-23 | 侧栏 1/3 锚定 + 容纳不下自动隐藏;Key 环按已用额度三色(≤60 绿 / 60–80 黄 / >80 红) | 8ff926b | 2026-09-23 [实现] v0.4.6 |
-| v0.4.5 | 2026-09-23 | 帧级跟随收敛为单一机制:WinEvent 回调 PostMessage → WndProc(移动+显隐),33ms 定时器全套删除 | 8404dab | 2026-09-23 [重构] v0.4.5 |
-| v0.4.4 | 2026-09-22 | 环详情弹窗合入:悬停显示环浮现用量气泡,宿主窗口加宽 112→577 物理px | 5cf9bc2 | 2026-09-22 [实现] v0.4.4 |
-| v0.4.3 | 2026-09-15 | 退出终态 TerminateProcess:Exit(0) 的 CLR 拆解本身即崩溃源 | f5aaa4f | 2026-09-15 [修复] v0.4.3 |
-| v0.4.2 | 2026-09-15 | 根治退出崩溃:ProcessExit 实测不触发,退出清理显式化(Stop-Widget) | 17036c6 | 2026-09-15 [修复] v0.4.2 |
-| v0.4.1 | 2026-09-15 | 同层补全:X 关闭跟随隐藏;彻底退出防 WER 崩溃 | fd5391f | 2026-09-15 [修复] v0.4.1 |
-| v0.4.0+ | 2026-09-15 | 形状上报桥锚点实测化(合入免回填,纯重构零行为变化) | 1d2497c | 2026-09-15 [改进] 形状上报桥锚点实测化 |
-| v0.4.0 | 2026-09-13 | 悬浮窗同层(owned window)+ 生死绑定 | 008ceeb | 2026-09-13 [调整] v0.4.0 |
-| v0.3.0 | 2026-09-13 | 合成宿主:真逐像素透明 | 5de0d6b | 2026-09-13 [实现] v0.3.0 |
-| v0.2.5 | 2026-09-13 | 换色就绪 + 透明路线结论(证伪存档) | e1339ca | 2026-09-13 [探索+改进] 任意背景透明路线证伪 |
-| v0.2.4 | 2026-09-13 | 残留白色像素三重根治 | 576f424 | 2026-09-13 [修复] 残留白色像素三重根治 |
-| v0.2.3 | 2026-09-13 | 1px 环绕白边消除(实测坐标) | b086fbc | 2026-09-13 [修复] 1px 环绕白边 |
-| v0.2.2 | 2026-09-13 | fab 动态窗口区域(弧线悬于桌面) | 882a9ea | 2026-09-13 [改进] fab 大黑圆垫 |
-| v0.2.1 | 2026-09-13 | 白底修复(SetWindowRgn 形状裁剪)+ 改小 | e10d019 | 2026-09-13 [修复] v0.2.0 白底根因与 v0.2.1 |
-| v0.2.0 | 2026-09-13 | 渲染层换 WebView2(定稿 HTML 直载) | c5a49ea | 2026-09-13 [实现] 悬浮窗 WebView2 方案落地 |
-| v0.1.2 | 2026-09-11 | Nothing 风 D 形胶囊(用户参考图) | e6ac3da | 2026-09-11 [用户参考图] |
-| v0.1.1 | 2026-09-11 | 深色底改为环境灰 | 7c601c3 | 2026-09-11 [调整] v0.1.1(补录) |
-| v0.1.0-M2.1 | 2026-09-11 | 嵌入侧栏形态(用户反馈) | 16576da | 2026-09-11 [用户验收反馈] |
-| v0.1.0-M2 | 2026-09-11 | M2 悬浮窗上线(WPF 1206 行) | 90bdf8c | 2026-09-11 M2 悬浮窗交付 |
-| v0.1.0-M3 | 2026-09-11 | M3 Chat2Doc 流水线上线 | 946a7df | 2026-09-11 M3 Chat2Doc 交付 |
-| v0.1.0-M1 | 2026-09-11 | M1 数据内核上线 | 5b2bf7b | 2026-09-11 M1 数据内核交付 |
+
+> 2026-09-30 按体系规范(索引 ≤10 行)裁撤更早版本行(v0.4.5 及以前,含 M1-M3 里程碑):完整时间线按日期检索[《开发日志.md》](./开发日志.md),被裁行保存在本文件 git 历史。
