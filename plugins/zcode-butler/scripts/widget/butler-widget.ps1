@@ -1,6 +1,10 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
-# 码管家桌面悬浮窗 v0.4.8(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# 码管家桌面悬浮窗 v0.4.9(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# v0.4.9:拖动整体移除(用户拍板:面板固定位置)——页面 pointerdown 拖动桥、
+#   宿主 DragMove/drag 路由、WM_NCLBUTTONDOWN/HTCAPTION/ReleaseCapture 专用件
+#   三处同删;位置恒为 1/3 锚定(此前拖动本就仅临时挪动,下次 ZCode 移动即回锚)。
+#   页 ↔ 宿主通道收窄为数据(ready/data)+ 形状上报(shape)两桥。
 # v0.4.8:环详情弹框整体等比例放大 30%(HTML CSS --pop-scale,页面侧唯一真相源)——
 #   页内尺寸/字号/间距走派生单位 --pu = --u × 1.3,气泡 path viewBox 不变由容器
 #   拉伸;尖角右缘锚点不变,气泡向左展开,故本文件窗口加宽公式的弹框宽(780)与
@@ -158,9 +162,9 @@ public static class ButlerHost {
     WM_LBUTTONDBLCLK = 0x203, WM_RBUTTONDOWN = 0x204, WM_RBUTTONUP = 0x205,
     WM_RBUTTONDBLCLK = 0x206, WM_MBUTTONDOWN = 0x207, WM_MBUTTONUP = 0x208,
     WM_MBUTTONDBLCLK = 0x209, WM_MOUSEWHEEL = 0x20A, WM_XBUTTONUP = 0x20C,
-    WM_MOUSEHWHEEL = 0x20E, WM_MOUSELEAVE = 0x2A3, WM_NCLBUTTONDOWN = 0xA1,
+    WM_MOUSEHWHEEL = 0x20E, WM_MOUSELEAVE = 0x2A3,
     WM_NCHITTEST = 0x84, WM_HOTKEY = 0x312;
-  private const int HTCLIENT = 1, HTCAPTION = 2, HTTRANSPARENT = -1;
+  private const int HTCLIENT = 1, HTTRANSPARENT = -1;   // v0.4.9:HTCAPTION 随拖动移除
 
   [UnmanagedFunctionPointer(CallingConvention.StdCall)]
   private delegate IntPtr WndProcDelegate(IntPtr h, uint m, IntPtr w, IntPtr l);
@@ -177,7 +181,6 @@ public static class ButlerHost {
   [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] private static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT t);
   [DllImport("user32.dll")] private static extern IntPtr SetCursor(IntPtr c);
-  [DllImport("user32.dll")] private static extern bool ReleaseCapture();
   [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] private static extern short GetKeyState(int vk);
   [DllImport("user32.dll")] private static extern bool ScreenToClient(IntPtr h, ref POINT p);
@@ -312,7 +315,7 @@ public static class ButlerHost {
   // 该路径下进程即将 Environment.Exit,WebView2 线程随进程终结,无需 Close
   public static void Shutdown() { var c = _controller; if (c != null && !_destroyed) { try { c.Close(); } catch { } } }
   private static void DestroyWindowQuiet() { try { SendMessage(_hwnd, 0x0012 /*WM_CLOSE*/, IntPtr.Zero, IntPtr.Zero); } catch { } }
-  public static void DragMove() { ReleaseCapture(); SendMessage(_hwnd, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero); }
+  // v0.4.9:DragMove 已删(面板固定 1/3 锚定,拖动桥连同页面侧监听一并移除)
 
   // ---- v0.4.5 frame-level follow: WinEvent callback -> PostMessage -> WndProc ----
   // One mechanism for both: LOCATIONCHANGE -> move; MINIMIZE/SHOW/HIDE -> visibility.
@@ -582,10 +585,7 @@ function Push-Data {
       } catch { WLog ('shape THREW: ' + $_.Exception.Message) }
     }
     elseif ($msg -like '*ready*') { $script:pageReady = $true; Push-Data }
-    elseif ($msg -like '*drag*') {
-      # v0.4.6:拖动仅临时挪动,下一次 ZCode 移动/缩放即回 1/3 锚定(位置记忆已删)
-      try { [ButlerHost]::DragMove() } catch { }
-    }
+    # v0.4.9:drag 消息路由已删——面板固定 1/3 锚定,页面侧拖动桥同除,此消息不再出现
   } catch { }
 }
 
