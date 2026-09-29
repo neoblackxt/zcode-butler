@@ -1,6 +1,11 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
-# 码管家桌面悬浮窗 v0.4.7(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# 码管家桌面悬浮窗 v0.4.8(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# v0.4.8:环详情弹框整体等比例放大 30%(HTML CSS --pop-scale,页面侧唯一真相源)——
+#   页内尺寸/字号/间距走派生单位 --pu = --u × 1.3,气泡 path viewBox 不变由容器
+#   拉伸;尖角右缘锚点不变,气泡向左展开,故本文件窗口加宽公式的弹框宽(780)与
+#   投影出血(60)同步乘同一倍率:窗口 577 → ≈708 物理px(弹窗区仍不在 NCHITTEST
+#   掩码内,点击穿透语义不变)。
 # v0.4.7:锚点校正——用户参考图像素实测(暗带游程扫描)侧栏中心位于 ZCode 窗高
 #   1/3,v0.4.6 的"窗口顶边锚 1/3"整段偏下 ~87px;改为胶囊中心(形状掩码轮廓
 #   min/maxY 中点,运行时实测)锚 1/3。容纳判定随之改为"中心锚定后整段可见实体
@@ -519,10 +524,13 @@ public static class ButlerHost {
 # v0.4.4:窗口加宽至环详情弹窗完整外沿(尖角右留 265 + 弹窗宽 780 + 阴影出血 60,舞台px
 # × 窗高/2025,与 dpr 无关);弹窗区不进 NCHITTEST 掩码——页面 pointer-events:none,
 # 保持 HTTRANSPARENT 点击穿透到 ZCode,窗口加宽只供渲染
+# v0.4.8:弹框等比例放大 30%(页面 --pop-scale)——弹框宽与出血同步乘倍率:
+#   (265 + 780×1.3 + 60×1.3)×(窗高/2025)×dpr + 4 → ≈708 物理px
 $script:stageH = 600.0
 $dpiScale = 1.75   # 兜底值;实际以 GetDpiForWindow 后的首帧 GetWindowRect 为准由页面 shape 校正
+$popScale = 1.3                                   # 须与 butler-widget.html 的 --pop-scale 一致
 $script:winH = [int][Math]::Round($script:stageH * $dpiScale)          # ≈1050
-$script:winW = [int][Math]::Ceiling((265.0 + 780.0 + 60.0) * ($script:stageH / 2025.0) * $dpiScale + 4)   # ≈577
+$script:winW = [int][Math]::Ceiling((265.0 + 780.0 * $popScale + 60.0 * $popScale) * ($script:stageH / 2025.0) * $dpiScale + 4)   # ≈708
 
 # 页面加载:file:// 会被 WebView2 磁盘缓存(实测事故)→ 复制到随机临时路径,正本唯一
 $script:pageFile = Join-Path $env:TEMP ('butler-widget-page-{0}.html' -f [Guid]::NewGuid().ToString('N'))
@@ -711,7 +719,7 @@ function Attach-Zcode {
   try { [void][ButlerNative.Win]::SetOwner((Get-WidgetHwnd), $hwnd) } catch { }
   # v0.4.5 帧级跟随 + v0.4.6 1/3 锚定:回调只投递,几何/显隐在 WndProc ApplyFollowGeom 统一算
   try {
-    $fw = 577
+    $fw = $script:winW   # v0.4.8 起随弹框放大倍率联动(原硬编码 577)
     $wh0 = Get-WidgetHwnd
     if (([int64]$wh0) -ne 0) {
       $wr0 = New-Object ButlerNative.Win+RECT
