@@ -38,6 +38,7 @@ plugins/zcode-butler/
 - **每次改动必升 version**:`marketplace.json` 的 `plugins[].version` 与 `plugins/zcode-butler/.zcode-plugin/plugin.json` 同步升。directory 源没有 git sha,directory 源唯一更新信号就是 version——不升 = 用户端永远不出更新按钮
 - 更新链路:本仓库 →(marketplace 刷新,每日 ~02:30 自动)→ `~/.zcode/cli/plugins/marketplaces/zcode-plugins-personal/` 镜像 →(UI 点更新,原子换入)→ `…/cache/zcode-plugins-personal/zcode-butler/<版本>/`。**安装/更新的拷贝源是镜像不是本仓库**;手动同步镜像可让更新按钮立即出现
 - 三份副本:仓库(正本)↔ 镜像 ↔ 缓存;改仓库后需手动同步缓存(代码立即生效)与镜像(按钮立即生效),ZCode 只在自动刷新时同步镜像
+- **「三端」与「三份副本」口径对齐**(2026-09-30 用户澄清):交付口径的「三端」= 桌面源码 ↔ GitHub ↔ ZCode 缓存;本节「三份副本」= 仓库 ↔ 镜像 ↔ 缓存——差别只在第三份。本节数**镜像**而不数 GitHub:镜像是安装/更新的拷贝源且会静默漂移(每日 ~02:30 才自刷),须同步纪律盯住;GitHub 与桌面仓库是同一 git 内容(push 即同步,不算独立副本),且镜像本身是 git clone(origin=GitHub),「手动同步镜像」= `git fetch origin && git reset --hard origin/main`,经 GitHub 中转。物理上共四份:桌面仓库 / GitHub / 镜像 / 缓存;桌面↔GitHub 归 git 管,镜像↔GitHub 由 ZCode 自动刷新(或手动 reset),日常只需核对三端一致
 - **悬浮窗进程必须对插件缓存目录零句柄**:WebView2 DLL 只从 `%LOCALAPPDATA%\zcode-butler\runtime\webview2\` staging 加载(`scripts/lib/runtime.mjs` 维护)。任何"直接从插件目录 LoadFrom/LoadLibrary/打开文件长持句柄"的新代码都违反本纪律——ZCode 卸载=rm 缓存目录,遇锁 EPERM 且无重试无回滚,必留半删残尸
 - **hook 拉起常驻进程一律走 .vbs 中转**(wscript 的 `WScript.Shell.Run`):exec/hook 链的 Windows Job 会连坐 node 直 spawn 的子进程(秒退 EXIT 0 连脚本都没执行,表象="启动了但没起来")
 - 悬浮窗换代对账:实例 stamp 在 `%LOCALAPPDATA%\zcode-butler\runtime\instance-*.json`,动互斥量逻辑前先读两个 ps1 的 mutex 段注释
