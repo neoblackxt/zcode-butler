@@ -17,6 +17,8 @@
     --ring-ok:   #7fdca9;
     --ring-warn: #eef67e;
     --ring-low:  #ee5c5c;
+    --badge:      #e25c4a;   /* 提醒徽标红(活动提醒提案 C/D 同源) */
+    --ink:        #030303;   /* 亮底之上的墨色文字(通知卡主按钮) */
     --icon:         #f5f5f5;   /* 图标白 */
     --label:        #e2e2e2;   /* 百分比文字 */
     --gear:         #ececec;   /* 齿轮白 */
@@ -216,7 +218,8 @@
   }
   .fab .gear-g {
     transform-origin: 96.5px 97px;
-    transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 0.2s ease;
   }
   .gear-body {
     fill: none;
@@ -238,6 +241,117 @@
   .fab-hit:focus-visible {
     outline: 2px solid rgba(3, 3, 3, 0.75);
     outline-offset: 3px;
+  }
+
+  /* ─── 收起态:按钮常驻「眼镜」气泡(活动提醒提案 C)──────────────
+     面板隐藏时弧线不再示人:弧线顺势收走(rotate −48° 缩退),黑气泡
+     expo-out 绽开常驻,白色镜片圆环居中;有未读时红色徽标弹簧落上
+     (过冲回弹,提案 C「先绽开再弹徽标」节奏)。悬停仅轻微放大,
+     眼镜即按钮;齿轮只在展开态悬停出现(设置入口走展开态)。 */
+  .stage.minimized .fab .disc {
+    opacity: 1;
+    transform: scale(1);
+    transition: transform 0.44s cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 0.28s ease-out;
+  }
+  .stage.minimized .fab .arc {
+    opacity: 0;
+    transform: rotate(-48deg) scale(0.72);
+  }
+  .stage.minimized .fab-zone:hover .disc,
+  .stage.minimized .fab-zone:focus-within .disc {
+    transform: scale(1.045);
+  }
+  .fab .eye-g {
+    opacity: 0;
+    transform: scale(0.7);
+    transform-origin: 96.5px 97px;
+    transition: opacity 0.2s ease,
+                transform 0.26s cubic-bezier(0.55, 0.055, 0.675, 0.19);
+  }
+  .stage.minimized .fab .eye-g {
+    opacity: 1;
+    transform: scale(1);
+    transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.12s,
+                opacity 0.24s ease-out 0.12s;
+  }
+  .stage.minimized .fab .gear-g {
+    opacity: 0;   /* 退场(transform 被点击旋转的内联样式占用,仅淡出) */
+  }
+  .fab .badge-g {
+    opacity: 0;
+    transform: scale(0);
+    transform-origin: 140.6px 44px;
+    transition: transform 0.3s cubic-bezier(0.55, 0.055, 0.675, 0.19),
+                opacity 0.18s ease-in;
+  }
+  .stage.minimized .fab.has-msg .badge-g {
+    opacity: 1;
+    transform: scale(1);
+    transition: transform 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s,
+                opacity 0.2s ease-out 0.3s;
+  }
+
+  /* ─── 提醒通知卡(活动提醒提案 D):有未读时点眼镜弹出,覆盖眼镜 ──
+     样式 1:1 迁自提案 D:几何按 fab 直径比例 ×1.471 折算为舞台像素
+     (提案卡宽 212 / 盘 104 ↔ 舞台 312 / 153),文字再 ×1.25 保证整窗
+     等比缩小后的可读性(沿用 v0.4.8 弹框放大先例);
+     右缘锚定 425、垂直居中于 fab 圆心 (317,1675);入场自右滑入
+     24.5%(提案 52/212),「知道了/稍后」后渐进滑出收回。 */
+  .toast {
+    position: absolute;
+    left: 425px; top: 1675px;
+    width: 312px;
+    z-index: 5;
+    background: #0a0a0a;
+    border: 1.5px solid var(--track);
+    border-radius: 24px;
+    padding: 24px 26px 22px;
+    box-shadow: 0 26px 60px rgba(3, 3, 3, 0.35);
+    opacity: 0;
+    transform: translate(-100%, -50%) translateX(24.5%);
+    transition: transform 0.42s cubic-bezier(0.55, 0.055, 0.675, 0.19),
+                opacity 0.26s ease-in;
+    pointer-events: none;
+  }
+  .toast.on {
+    opacity: 1;
+    transform: translate(-100%, -50%) translateX(0);
+    transition: transform 0.48s cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 0.3s ease-out;
+    pointer-events: auto;
+  }
+  .toast .t {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--icon);
+    margin-bottom: 8px;
+    letter-spacing: 0.01em;
+  }
+  .toast .b {
+    font-size: 22.5px;
+    line-height: 1.5;
+    color: #c9c9c9;
+    margin-bottom: 20px;
+  }
+  .toast .row { display: flex; gap: 12px; align-items: center; }
+  .toast button {
+    font-family: inherit;
+    border: 0;
+    padding: 10px 22px;
+    font-size: 21px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 999px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .toast .primary { background: var(--icon); color: var(--ink); }
+  .toast .primary:hover { opacity: 0.86; }
+  .toast .ghost { color: var(--label); background: transparent; padding: 10px 16px; }
+  .toast .ghost:hover { background: rgba(255, 255, 255, 0.07); }
+  .toast button:focus-visible {
+    outline: 2px solid rgba(245, 245, 245, 0.8);
+    outline-offset: 2px;
   }
 
   /* ─── 环详情弹窗:悬停显示环时自左浮现,尖角指向该环中心 ───────
@@ -344,10 +458,10 @@
   .stage.minimized ~ .usage-pop { opacity: 0; }
 
   @media (prefers-reduced-motion: reduce) {
-    .fab .disc, .fab .arc, .fab .gear-g,
+    .fab .disc, .fab .arc, .fab .gear-g, .fab .eye-g, .fab .badge-g,
     .panel-wrap, .meter { transition: none; }
     body.peak-live .peak-halo { animation: none; }
-    .usage-pop { transition: none; }
+    .usage-pop, .toast { transition: none; }
   }
 </style>
 </head>
@@ -422,11 +536,32 @@
               <path class="gear-body" id="gearPath" d=""/>
               <circle class="gear-body" cx="96.5" cy="97" r="14"/>
             </g>
+            <!-- 眼镜镜片(提案 C 白环):收起态常驻图标,替代齿轮 -->
+            <circle class="eye-g" cx="96.5" cy="97" r="30.9" fill="none"
+                    stroke="var(--icon)" stroke-width="8.1"/>
+          </g>
+          <!-- 提醒徽标(提案 C):气泡右上角弹簧落上,数字 = 未读数 -->
+          <g class="badge-g" data-od-id="fab-badge">
+            <circle cx="140.6" cy="44" r="18.4" fill="var(--badge)"/>
+            <text id="badgeNum" x="140.6" y="44" text-anchor="middle"
+                  dominant-baseline="central" fill="#fff" font-size="18.5"
+                  font-weight="700" font-family="inherit">0</text>
           </g>
           <path class="arc" id="arcPath" data-od-id="fab-arc" d=""/>
         </svg>
         <button class="fab-hit" id="gearBtn" data-od-id="settings-button"
                 aria-label="设置" title="设置"></button>
+      </div>
+    </div>
+
+    <!-- 提醒通知卡(提案 D):有未读时点眼镜弹出,覆盖住眼镜 -->
+    <div class="toast" id="toastCard" role="dialog" aria-modal="false" aria-hidden="true"
+         data-od-id="toast-card">
+      <div class="t" id="toastTitle" data-od-id="toast-title">活动提醒</div>
+      <div class="b" id="toastBody" data-od-id="toast-body">今日 5h 额度剩余 30 分钟,建议收尾当前任务。</div>
+      <div class="row">
+        <button class="primary" id="toastOk" type="button" data-od-id="toast-ok">知道了</button>
+        <button class="ghost" id="toastLater" type="button" data-od-id="toast-later">稍后</button>
       </div>
     </div>
 
@@ -588,31 +723,108 @@
   })();
 
   /* ── 弧线 ↔ 气泡的过渡由 CSS(:hover / :focus-within)完成;
-     点击齿轮 = 展开/收起面板(设计原型同款滑动动效,状态持久化)+ 旋转反馈 ── */
+     收起态按钮常驻「眼镜」(方案 C 绽开 + 徽标),点击分诊:
+     未读 > 0 → 方案 D 通知卡(覆盖眼镜);未读 = 0 → 展开/收起面板 ── */
   var gearG = document.getElementById('gearG');
   var gearBtn = document.getElementById('gearBtn');
   var spinDeg = 0;
   var PANEL_MIN_KEY = 'butler-panel-minimized';
+
+  /* ── 活动提醒:未读队列驱动徽标 + 通知卡 ────────────────────────
+     宿主 PostWebMessageAsJson {type:'notify',payload:{title,body}} 入队;
+     ?msg=1 种子一条提案 D 原文案、按键 n 追加一条(均为联调入口,宿主
+     file:// 无查询串、无键盘焦点,不受影响)。「知道了」消耗队首一条,
+     「稍后」/Esc 保留未读(下次点击再弹同一条)。 */
+  var butlerUnreadMsgs = [];
+  var toastCard = document.getElementById('toastCard');
+  function butlerUnread() { return butlerUnreadMsgs.length; }
+  function butlerRefreshBadge() {
+    var fab = document.querySelector('.fab');
+    if (fab) fab.classList.toggle('has-msg', butlerUnread() > 0);
+    var n = document.getElementById('badgeNum');
+    if (n) n.textContent = butlerUnread() > 9 ? '9+' : String(butlerUnread());
+    var label = stage.classList.contains('minimized')
+      ? (butlerUnread() ? '查看提醒' : '展开用量面板') : '设置';
+    gearBtn.setAttribute('aria-label', label);
+    gearBtn.setAttribute('title', label);
+  }
+  function butlerNotify(title, body) {
+    butlerUnreadMsgs.push({ title: title, body: body });
+    butlerRefreshBadge();
+  }
+  function butlerShapeDirty() {   /* 形状掩码重报钩子(宿主块内挂监听) */
+    try { window.dispatchEvent(new CustomEvent('butler-shape-dirty')); } catch (err) { }
+  }
+  function butlerToastShow() {
+    if (!toastCard || !butlerUnread()) return;
+    var m = butlerUnreadMsgs[0];
+    document.getElementById('toastTitle').textContent = m.title;
+    document.getElementById('toastBody').textContent = m.body;
+    toastCard.classList.add('on');
+    toastCard.setAttribute('aria-hidden', 'false');
+    butlerShapeDirty();
+  }
+  function butlerToastHide(consume) {
+    if (!toastCard) return;
+    if (consume && butlerUnread()) butlerUnreadMsgs.shift();
+    /* 焦点先出卡再挂 aria-hidden,否则聚焦的「知道了/稍后」被藏进无障碍树,浏览器告警 */
+    try {
+      if (document.activeElement && toastCard.contains(document.activeElement)) document.activeElement.blur();
+    } catch (err) { }
+    toastCard.classList.remove('on');
+    toastCard.setAttribute('aria-hidden', 'true');
+    butlerRefreshBadge();
+    butlerShapeDirty();
+  }
+  if (toastCard) {
+    document.getElementById('toastOk').addEventListener('click', function () { butlerToastHide(true); });
+    document.getElementById('toastLater').addEventListener('click', function () { butlerToastHide(false); });
+    window.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && toastCard.classList.contains('on')) butlerToastHide(false);
+    });
+  }
+  (function () {
+    var DEMO_MSG = { title: '活动提醒', body: '今日 5h 额度剩余 30 分钟,建议收尾当前任务。' };
+    if (/[?&]msg=1/.test(location.search) || /msg/.test(location.hash)) {
+      butlerNotify(DEMO_MSG.title, DEMO_MSG.body);
+    }
+    window.addEventListener('keydown', function (e) {   /* 联调:按键 n 补一条未读 */
+      if (e.key === 'n' || e.key === 'N') butlerNotify(DEMO_MSG.title, DEMO_MSG.body);
+    });
+  })();
+
   function applyPanelMin(minimized) {
     stage.classList.toggle('minimized', minimized);
     gearBtn.setAttribute('aria-expanded', String(!minimized));
     if (minimized) {
       var p = document.getElementById('usagePop');
       if (p) p.classList.remove('on');   /* 环已出窗,弹窗不留残影 */
+      if (toastCard && toastCard.classList.contains('on')) butlerToastHide(false);
     }
+    butlerRefreshBadge();
   }
   gearBtn.addEventListener('click', function () {
     spinDeg += 180;   /* 每次点击顺时针转半圈 */
     gearG.style.transform = 'rotate(' + spinDeg + 'deg)';
-    var next = !stage.classList.contains('minimized');
-    applyPanelMin(next);
-    try { localStorage.setItem(PANEL_MIN_KEY, String(next)); } catch (err) { }
+    if (stage.classList.contains('minimized')) {
+      if (butlerUnread()) {   /* 有消息:弹方案 D 通知卡,覆盖眼镜,不展开 */
+        butlerToastShow();
+        try { this.blur(); } catch (err) { }
+        return;
+      }
+      applyPanelMin(false);   /* 无消息:点击眼镜 = 展开用量面板 */
+    } else {
+      applyPanelMin(true);
+    }
+    try { localStorage.setItem(PANEL_MIN_KEY,
+      String(stage.classList.contains('minimized'))); } catch (err) { }
     /* v0.4.10:点击后立即失焦——点击会把 DOM 焦点留在按钮,:focus-within 让齿轮
        气泡在光标离开后仍常驻不回退弧线(实测:点击→光标移远,fab 中心仍纯黑);
        键盘 Tab 聚焦的绽放不受影响(:focus-within 规则保留) */
     try { this.blur(); } catch (err) { }
   });
   try { applyPanelMin(localStorage.getItem(PANEL_MIN_KEY) === 'true'); } catch (err) { }
+  butlerRefreshBadge();
 
   /* ── 高峰期判定:周一至周五 14:00–18:00 点亮 5h 环光晕;
       URL 加 ?peak=1(或 #peak)可在任意时间预览发光态 ─────────────── */
@@ -764,6 +976,9 @@
         if (msg && msg.type === 'data') {
           butlerApply(msg.payload);
           try { localStorage.setItem('butler-last-data', JSON.stringify(msg.payload)); } catch (err) { }
+        } else if (msg && msg.type === 'notify' && msg.payload) {
+          /* 活动提醒入队:收起态眼镜弹徽标;展开态静默积累,收起时补弹 */
+          butlerNotify(msg.payload.title || '活动提醒', msg.payload.body || '');
         }
       } catch (err) { }
     });
@@ -833,11 +1048,21 @@
           }
         }
       }
+      /* 通知卡(提案 D)显示时把卡片矩形并入形状上报:宿主据此扩命中掩码,
+         卡上「知道了/稍后」才可点;隐藏时上报 null,区域回到穿透。
+         (宿主 ps1 需把 toast 字段并入 HRGN——本轮为原型侧先行) */
+      var toastEl = document.getElementById('toastCard');
+      var toastRect = null;
+      if (toastEl && toastEl.classList.contains('on')) {
+        var tr = toastEl.getBoundingClientRect();
+        toastRect = [tr.left, tr.top, tr.right, tr.bottom];
+      }
       try {
         var pb = panel.getBoundingClientRect(), ab = arc ? arc.getBoundingClientRect() : null;
         window.chrome.webview.postMessage(JSON.stringify({
           type: 'shape', dpr: (window.devicePixelRatio || 1),
           capsule: caps, band: band, caps: arcCaps, bandR: bandR, fabC: fabC, fabR: fabR,
+          toast: toastRect,
           dbgPanelBox: [pb.left, pb.top, pb.right, pb.bottom],
           dbgArcBox: ab ? [ab.left, ab.top, ab.right, ab.bottom] : null,
           dbgBodyBg: getComputedStyle(document.body).backgroundColor,
@@ -856,6 +1081,17 @@
         if (e.target === pwrapForShape && e.propertyName === 'transform') butlerReportShape();
       });
     }
+    /* 通知卡进出后重报形状:transitionend 精确报在落定帧,
+       butler-shape-dirty 定时兜底(覆盖 reduced-motion 无过渡事件的场景) */
+    var toastForShape = document.getElementById('toastCard');
+    if (toastForShape) {
+      toastForShape.addEventListener('transitionend', function (e) {
+        if (e.target === toastForShape && e.propertyName === 'transform') butlerReportShape();
+      });
+    }
+    window.addEventListener('butler-shape-dirty', function () {
+      setTimeout(butlerReportShape, 520);
+    });
   }
 </script>
 </body>
