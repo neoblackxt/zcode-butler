@@ -1,7 +1,11 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
-# ZCode 会话统计覆盖层 v0.12(码管家·会话统计条;输入框上沿,B+E1 徽章仪表右置)
-# 显示:● ⚡ 首 token X.XXs | ▁▃▅ N.N tok/s(双胶囊,呼吸绿点+sky 火花线,页面内假数据)
+# ZCode 会话统计覆盖层 v0.13e(码管家·会话统计条;输入框上沿,B+E1 徽章仪表右置)
+# 显示:● ⚡ 首 token X.XXs | ▁▃▅ N.N tok/s(双胶囊,呼吸绿点+sky 火花线,真数据)
+# v0.13(2026-09-29/30,自缓存实验线合入):真数据 = metrics.mjs 双通道(UIA 转录
+#   文字实时 + db.sqlite model_usage 真值平均/TTFT,详见该文件头注);宿主读
+#   ~/.zcode/stats-widget-metrics.json 推页。v0.13e:会话切换(session.resumed 即
+#   接管并按 db 历史重建该会话聚合)+ 启动自举重建 + workflow 子代理不抢屏。
 # v0.12:出现时机 + 位置自适应(CDP 通道):
 #   ZCode 以 --remote-debugging-port=9222 启动(zcode-cdp-launch.vbs)时,anchor-probe.mjs
 #   读 composer 实时 rect(视口 CSS px)→ ~/.zcode/stats-widget-anchor.json → 本宿主换算
@@ -427,10 +431,10 @@ WLog ('boot: init ' + $initX + ',' + $initY + ' ' + $script:winW + 'x' + $script
   if ([StatsHost]::Visible) { [StatsHost]::Hide() } else { [StatsHost]::Show() }
 }
 
-# ---- 页面消息:回执日志(主题应用等) ----
+# ---- 页面消息:回执日志(主题应用/相位切换等) ----
 [StatsHost]::OnMessage = {
   param($msg)
-  if ($msg -like '*theme*') { WLog ('page-ack: ' + $msg) }
+  if ($msg -like '*theme*' -or $msg -like '*stats*') { WLog ('page-ack: ' + $msg) }
 }
 
 # =====================================================================
@@ -445,14 +449,21 @@ $script:rescanBusy = $false
 $script:anchorFile = Join-Path $dotZcode 'stats-widget-anchor.json'
 $script:lastAnchorWrite = [datetime]::MinValue
 $script:lastAnchorCheck = (Get-Date).AddSeconds(-1)
-$script:cdpShown = $true
+# v0.13 真数据:metrics.mjs 采集器契约(算法对齐 oc-tps,详见该文件头注)
+$script:metricsFile = Join-Path $dotZcode 'stats-widget-metrics.json'
+$script:lastStatsWrite = [datetime]::MinValue
+$script:lastStatsCheck = (Get-Date).AddSeconds(-1)
 $script:anchorWasPresent = $false
 $script:cdpActive = $false
 $script:lastTheme = ''
-$script:tgX = 0; $script:tgY = 0; $script:tgVisible = $true
-$script:curX = $null; $script:curY = $null
+$script:curX = 0; $script:curY = 0
 $script:lastZL = [int]::MinValue; $script:lastZT = [int]::MinValue
 $script:hadCdpOnce = $false; $script:lastGoodX = 0; $script:lastGoodY = 0; $script:lastCdpGood = [datetime]::MinValue
+# v0.12.5f 显隐状态机(用户拍板语义,替代滑翔/阈值隐藏/滞回全套):
+#   有输入框才显示;无输入框立即消失;高度偏离默认±24 立即隐身;长移动(>100px)立即消失,
+#   目标位稳定 ~300ms 后直接出现在正确位置——无滑翔、无游走、无试错
+$script:shown = $false
+$script:pendX = 0; $script:pendY = 0; $script:pendSince = 0
 
 function Find-ZcodeWindow([int]$targetPid) {
   $best = [IntPtr]::Zero; $bestArea = 0
@@ -479,61 +490,52 @@ function Get-VisibleBottom {
   return $r.Bottom
 }
 function Get-TargetPosition {
-  # v0.12.4 目标位置 + 可见性:锚文件三态——
-  #   ① fresh + geometry → 跟随(CDP 分支);② fresh + none → 隐藏(输入框不在:设置/搜索/插件市场页或被覆盖);
-  #   ③ 缺失/陈旧 → 通道失联:10s 内保持原位,超时落基线常量(v0.11 公式)
-  $useCdp = $false; $none = $false; $ar = 0.0; $at = 0.0; $ah = 0.0
+  # v0.12.5f:只报事实,不做显隐决策(显隐与移动全部由 Position-Follow 状态机裁决)。
+  #   mode: geo(有 x/y/h,基线也走此路)| none(无输入框,立即消失)| hold(劣化窗口/锚暂断,保持现状)
+  $ar = 0.0; $at = 0.0; $ah = 0.0; $useGeo = $false; $none = $false; $n0 = $false
+  $a = $null
   try {
     if (Test-Path $script:anchorFile) {
       $fi = Get-Item $script:anchorFile -ErrorAction SilentlyContinue
       if ($fi -and ((New-TimeSpan $fi.LastWriteTime (Get-Date)).TotalMilliseconds -lt 2000)) {
         $a = Get-Content $script:anchorFile -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
         if ($a -and $a.mode -eq 'phys') {
-          if ($a.none) { $none = $true; $useCdp = $true }
-          elseif ($a.right -gt 100 -and $a.height -gt 40) { $ar = [double]$a.right; $at = [double]$a.top; $ah = [double]$a.height; $useCdp = $true }
+          if ($a.none) { if ($a.n -eq 0) { $n0 = $true } else { $none = $true } }
+          elseif ($a.right -gt 100 -and $a.height -gt 40) { $ar = [double]$a.right; $at = [double]$a.top; $ah = [double]$a.height; $useGeo = $true }
         }
       }
     }
   } catch { }
-  if ($useCdp) {
-    if ($none) {
-      # ①a 探针 UIA 劣化窗口(载荷带 n:0,composer 其实在)→ 保持原位,不隐藏不滑走
-      if ($a.n -eq 0) {
-        $script:cdpActive = $true
-        if (-not $script:hadCdpOnce) { return @{ visible = $false } }   # 预热期就劣化:尚无几何可保持 → 藏
-        return @{ x = $script:lastGoodX; y = $script:lastGoodY; visible = $script:cdpShown }
-      }
-      # ①b 真 none(设置/搜索/自动化/插件市场等页面,输入框不在或被覆盖)→ 隐藏
-      $script:cdpActive = $true
-      return @{ visible = $false }
-    }
-    $x = [int]$ar - $script:winW                                  # 右缘贴 composer 右缘
+  if ($useGeo) {
+    $script:cdpActive = $true
     $x = [int]$ar - $script:winW                                  # 右缘贴 composer 右缘
     $y = [int]$at - $script:gapAbovePx - $script:winH             # 底缘贴 composer 上沿 - gap
-    # 出现时机状态机:超高隐藏(滞回 24px),回落恢复
-    if ($script:cdpShown) {
-      if ($ah -gt ($script:showMaxComposerPx + 24)) { $script:cdpShown = $false; WLog ('cdp hide: composerH=' + $ah) }
-    } elseif ($ah -le $script:showMaxComposerPx) { $script:cdpShown = $true; WLog ('cdp show: composerH=' + $ah) }
     # v0.12.3 主题推送:探针采样编辑区亮度 → 页面切浅/深配色
     if ($a.theme -ne $script:lastTheme -and ($a.theme -eq 'light' -or $a.theme -eq 'dark')) {
       $script:lastTheme = $a.theme
       WLog ('theme push: ' + $a.theme)
       try { [StatsHost]::PostJson('{"type":"theme","v":"' + $a.theme + '"}') } catch { WLog ('theme push THREW ' + $_.Exception.Message) }
     }
-    $script:cdpActive = $true
     $script:hadCdpOnce = $true; $script:lastGoodX = $x; $script:lastGoodY = $y; $script:lastCdpGood = Get-Date
-    return @{ x = $x; y = $y; visible = $script:cdpShown }
+    return @{ mode = 'geo'; x = $x; y = $y; h = [int]$ah }
+  }
+  if ($none) { $script:cdpActive = $true; return @{ mode = 'none' } }
+  if ($n0) {
+    # 探针 UIA 劣化窗口(载荷带 n:0,composer 其实在)→ 保持现状;预热期就劣化则无几何可保持
+    $script:cdpActive = $true
+    if (-not $script:hadCdpOnce) { return @{ mode = 'none' } }
+    return @{ mode = 'hold' }
   }
   $script:cdpActive = $false
-  # 锚暂断(探针自愈接力/预热,通常 1-2s):10s 内有过 CDP 几何 → 保持原位,输入框没动就不滑走
+  # 锚暂断(探针自愈接力/预热,通常 1-2s):10s 内有过 CDP 几何 → 保持原位
   if ($script:hadCdpOnce -and ((Get-Date) - $script:lastCdpGood).TotalMilliseconds -lt 10000) {
-    return @{ x = $script:lastGoodX; y = $script:lastGoodY; visible = $script:cdpShown }
+    return @{ mode = 'hold' }
   }
   $r = New-Object StatsNative.Win+RECT
   [StatsNative.Win]::GetWindowRect($script:zcodeHwnd, [ref]$r) | Out-Null
   $x = $r.Left + [int](($r.Right - $r.Left) / 2) + $script:centerXOffset + $script:composerHalfWidthPx - $script:winW
   $y = (Get-VisibleBottom) - $script:bandFromBottom - $script:composerHeightPx - $script:gapAbovePx - $script:winH
-  return @{ x = $x; y = $y; visible = $true }
+  return @{ mode = 'geo'; x = $x; y = $y; h = $script:composerHeightPx }
 }
 function Update-FollowParamsXY([int]$x, [int]$y) {
   # C# 帧级跟随吃「窗口相对偏移」:滑翔时同步烘焙"当前位",OnLocChange 抢拍也落在滑翔路径上
@@ -546,21 +548,45 @@ function Position-Follow {
   if (([int64]$script:zcodeHwnd) -eq 0) { return }
   if (-not [StatsNative.Win]::IsWindow($script:zcodeHwnd)) { return }
   $t = Get-TargetPosition
-  $script:tgX = $t.x; $script:tgY = $t.y; $script:tgVisible = $t.visible
-  if (-not $t.visible) { if ([StatsHost]::Visible) { [StatsHost]::Hide() }; return }
-  if (-not [StatsHost]::Visible) {
-    [StatsHost]::Show()
-    # 从隐藏恢复:直接吸附目标位,不做滑翔;烘焙目标偏移供 C# 帧级跟随
-    $script:curX = $t.x; $script:curY = $t.y
-    Update-FollowParamsXY $t.x $t.y
+  $now = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+  # v0.12.5f 显隐状态机:全部"直接",无滑翔无游走——
+  #   none → 立即消失;高度偏离默认±24 → 立即隐身;hold → 保持现状不动
+  if ($t.mode -eq 'none') {
+    if ([StatsHost]::Visible) { [StatsHost]::Hide(); WLog 'sm: hide(none)' }
+    $script:shown = $false; $script:pendSince = 0
     return
   }
-  # 常规态:只烘焙滑翔当前位置(终值偏移由滑翔收敛后烘焙),否则 OnLocChange 会按
-  # 终值瞬移、滑翔又拉回 —— 侧栏切换时的抖动根源
-  if ($script:curX -eq $null) {
-    # 首个目标:必须落位(滑翔块看到 cur==tg 会以为已到位而永不移动)
-    $script:curX = $t.x; $script:curY = $t.y
+  if ($t.mode -eq 'hold') { return }
+  if (($t.h -gt ($script:composerHeightPx + 24)) -or ($t.h -lt ($script:composerHeightPx - 24))) {
+    if ([StatsHost]::Visible) { [StatsHost]::Hide(); WLog ('sm: hide(H=' + $t.h + ')') }
+    $script:shown = $false; $script:pendSince = 0
+    return
+  }
+  if (-not $script:shown) {
+    # 无→有:先确定位置再显示——目标位连续稳定(±5px 不变)~300ms 才现身,直接出现在正确位置
+    if ([Math]::Abs($t.x - $script:pendX) -le 5 -and [Math]::Abs($t.y - $script:pendY) -le 5) {
+      if ($script:pendSince -eq 0) { $script:pendSince = $now }
+      if ($now - $script:pendSince -ge 300) {
+        [StatsHost]::MoveTo($t.x, $t.y)
+        [StatsHost]::Show()
+        $script:shown = $true; $script:curX = $t.x; $script:curY = $t.y
+        Update-FollowParamsXY $t.x $t.y
+        WLog ('sm: show@stable ' + $t.x + ',' + $t.y + ' h=' + $t.h)
+      }
+    } else { $script:pendX = $t.x; $script:pendY = $t.y; $script:pendSince = 0 }
+    return
+  }
+  # 已显示:小位移(4~100px)直接挪(4px 死区滤微抖);长移动(>100px)立即消失转稳定确认
+  $dx = [Math]::Abs($t.x - $script:curX); $dy = [Math]::Abs($t.y - $script:curY)
+  if ($dx -gt 100 -or $dy -gt 100) {
+    [StatsHost]::Hide(); $script:shown = $false
+    $script:pendX = $t.x; $script:pendY = $t.y; $script:pendSince = 0
+    WLog ('sm: long-move hide ' + $script:curX + ',' + $script:curY + ' -> ' + $t.x + ',' + $t.y)
+    return
+  }
+  if ($dx -ge 4 -or $dy -ge 4) {
     [StatsHost]::MoveTo($t.x, $t.y)
+    $script:curX = $t.x; $script:curY = $t.y
   }
   Update-FollowParamsXY $script:curX $script:curY
 }
@@ -630,9 +656,10 @@ $followTimer = New-Object System.Windows.Threading.DispatcherTimer
 $followTimer.Interval = [TimeSpan]::FromMilliseconds(33)
 $followTimer.Add_Tick({
   try {
-    # v0.12:锚文件监听(100ms 一次 stat)。三类变化都要置脏:
+    # v0.12.5g:锚文件监听(40ms 一次 stat,原 100ms)——消失链路 = 探针轮询 120ms + 此检查
+    # + 33ms tick,收紧检查把最坏消失延迟从 ~250ms 压到 ~190ms。三类变化都要置脏:
     #   ① mtime 变了(新 rect);② 文件消失(探锚死/清场 → 回落基线);③ CDP 激活中但 >2s 无心跳(陈旧 → 回落基线)
-    if (((Get-Date) - $script:lastAnchorCheck).TotalMilliseconds -ge 100) {
+    if (((Get-Date) - $script:lastAnchorCheck).TotalMilliseconds -ge 40) {
       $script:lastAnchorCheck = Get-Date
       try {
         $present = Test-Path $script:anchorFile
@@ -647,45 +674,53 @@ $followTimer.Add_Tick({
         $script:anchorWasPresent = $present
       } catch { }
     }
+    # v0.13:metrics 文件变化即推页(500ms 节流;>8s 陈旧视为采集器死,不推)
+    if (((Get-Date) - $script:lastStatsCheck).TotalMilliseconds -ge 500) {
+      $script:lastStatsCheck = Get-Date
+      try {
+        if (Test-Path $script:metricsFile) {
+          $mf = Get-Item $script:metricsFile -ErrorAction SilentlyContinue
+          if ($mf -and $mf.LastWriteTimeUtc -ne $script:lastStatsWrite -and ((New-TimeSpan $mf.LastWriteTime (Get-Date)).TotalMilliseconds -lt 8000)) {
+            $script:lastStatsWrite = $mf.LastWriteTimeUtc
+            $m = Get-Content $script:metricsFile -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+            if ($m -and $m.phase) {
+              $ic = [System.Globalization.CultureInfo]::InvariantCulture
+              $nTps = if ($null -ne $m.tps) { ([double]$m.tps).ToString('0.##', $ic) } else { 'null' }
+              $nAvg = if ($null -ne $m.turnAvg) { ([double]$m.turnAvg).ToString('0.##', $ic) } else { 'null' }
+              $nTtft = if ($null -ne $m.ttft) { ([double]$m.ttft).ToString('0.##', $ic) } else { 'null' }
+              $json = '{"type":"stats","phase":"' + $m.phase + '","tps":' + $nTps + ',"turnAvg":' + $nAvg + ',"ttft":' + $nTtft + '}'
+              if ($json -ne $script:lastStatsJson) {   # 心跳重写内容不变不推(250ms 心跳 × 500ms 节流防滥发)
+                $script:lastStatsJson = $json
+                try { [StatsHost]::PostJson($json) } catch { }
+              }
+            }
+          }
+        }
+      } catch { }
+    }
     if ([StatsState]::FollowDirty -eq 1) {
       [StatsState]::FollowDirty = 0
       if (([int64]$script:zcodeHwnd) -ne 0 -and [StatsNative.Win]::IsWindow($script:zcodeHwnd)) {
         if ([StatsNative.Win]::IsIconic($script:zcodeHwnd) -or (-not [StatsNative.Win]::IsWindowVisible($script:zcodeHwnd))) {
-          if ([StatsHost]::Visible) { [StatsHost]::Hide() }
+          if ([StatsHost]::Visible) { [StatsHost]::Hide() }; $script:shown = $false
         }
         else {
-          Position-Follow   # 更新目标/可见性并喂 C# 偏移;移动由下方滑翔块执行(v0.12.3)
+          Position-Follow   # v0.12.5f:显隐状态机,显隐与移动都在此裁决
         }
       }
     }
-    # v0.12.3 滑翔:每个 tick 向目标走 45%,2px 内吸附——布局切换从"闪现"变 ~200ms 滑翔。
-    # 窗口被拖动/缩放时跳过(C# 帧级偏移已贴住,且本 tick 目标可能尚未刷新),并同步吸附。
+    # 窗口拖动/缩放同步:C# 帧级跟随已贴住,cur 同步到浮标实际矩形并重烘偏移
+    # (v0.12.5f:滑翔机制已删,长位移走「消失→稳定→直接出现」)
     if (([int64]$script:zcodeHwnd) -ne 0 -and [StatsNative.Win]::IsWindow($script:zcodeHwnd)) {
       $zr = New-Object StatsNative.Win+RECT
       [StatsNative.Win]::GetWindowRect($script:zcodeHwnd, [ref]$zr) | Out-Null
       $windowMoved = ($zr.Left -ne $script:lastZL -or $zr.Top -ne $script:lastZT)
       $script:lastZL = $zr.Left; $script:lastZT = $zr.Top
-      if ($windowMoved) {
-        # 同步 cur 到浮标实际矩形(而非目标):窗口被拖动时 C# 已贴住,cur 若同步到
-        # 未刷新的目标会让滑翔误判"已到位"而卡死
+      if ($windowMoved -and $script:shown) {
         $wr = New-Object StatsNative.Win+RECT
         [StatsNative.Win]::GetWindowRect([StatsHost]::Handle, [ref]$wr) | Out-Null
         $script:curX = $wr.Left; $script:curY = $wr.Top
-      }
-      if ($script:tgVisible -and [StatsHost]::Visible -and -not $windowMoved) {
-        if ($script:curX -eq $null) { $script:curX = $script:tgX; $script:curY = $script:tgY }
-        $dx = $script:tgX - $script:curX; $dy = $script:tgY - $script:curY
-        if ([Math]::Abs($dx) -lt 2 -and [Math]::Abs($dy) -lt 2) {
-          if ($dx -ne 0 -or $dy -ne 0) {
-            $script:curX = $script:tgX; $script:curY = $script:tgY
-            [StatsHost]::MoveTo($script:curX, $script:curY)
-            Update-FollowParamsXY $script:curX $script:curY
-          }
-        } else {
-          $script:curX += [int][Math]::Round($dx * 0.45); $script:curY += [int][Math]::Round($dy * 0.45)
-          [StatsHost]::MoveTo($script:curX, $script:curY)
-          Update-FollowParamsXY $script:curX $script:curY   # 抢拍落在滑翔路径上,不瞬移
-        }
+        Update-FollowParamsXY $script:curX $script:curY
       }
     }
   } catch { }
@@ -705,19 +740,48 @@ $rescanTimer.Add_Tick({
     $alive = (([int64]$script:zcodeHwnd) -ne 0) -and [StatsNative.Win]::IsWindow($script:zcodeHwnd)
     if (-not $alive) {
       Detach-Zcode
-      if (Attach-Zcode) { if (-not [StatsHost]::Visible) { [StatsHost]::Show() } }
-      elseif ([StatsHost]::Visible) { [StatsHost]::Hide() }
+      if (Attach-Zcode) { $script:shown = $false; $script:pendSince = 0 }   # 重吸附后按新目标走稳定确认
+      elseif ([StatsHost]::Visible) { [StatsHost]::Hide(); $script:shown = $false }
     }
     elseif ([StatsNative.Win]::IsIconic($script:zcodeHwnd) -or (-not [StatsNative.Win]::IsWindowVisible($script:zcodeHwnd))) {
-      if ([StatsHost]::Visible) { [StatsHost]::Hide() }
+      if ([StatsHost]::Visible) { [StatsHost]::Hide(); $script:shown = $false }
     }
+    # v0.12.5 探针看门狗:ZCode 活着但锚 >5s 无心跳且探针进程不在 → 重拉 vbs。
+    # 此前探针只在宿主启动时拉一次,崩溃(非自愈接力路径)后浮标 10s 落基线且永不自愈
+    try {
+      $anchorLive = (Test-Path $script:anchorFile) -and ((New-TimeSpan (Get-Item $script:anchorFile -ErrorAction SilentlyContinue).LastWriteTime (Get-Date)).TotalMilliseconds -le 5000)
+      if (-not $anchorLive -and $script:zcodePid -gt 0 -and ((Get-Date) -gt $script:nextProbeLaunch)) {
+        $probeAlive = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+          Where-Object { $_.CommandLine -like '*anchor-probe-ui*' }).Count -gt 0
+        if (-not $probeAlive -and $script:probeVbs -and (Test-Path $script:probeVbs)) {
+          $script:nextProbeLaunch = (Get-Date).AddSeconds(15)
+          try { Start-Process wscript.exe -ArgumentList ('"' + $script:probeVbs + '"') -WindowStyle Hidden; WLog 'watchdog: probe relaunched' } catch { WLog ('watchdog THREW ' + $_.Exception.Message) }
+        }
+      }
+    } catch { }
   } finally { $script:rescanBusy = $false }
 })
 $rescanTimer.Start()
 
-# v0.12:CDP 探锚(独立 node 进程,经 vbs 逃 Job;端口够不到 60s 自退,宿主下次启动再拉)
-$probeVbs = Join-Path $PSScriptRoot 'anchor-probe-launch.vbs'
-if (Test-Path $probeVbs) { try { Start-Process wscript.exe -ArgumentList ('"' + $probeVbs + '"') -WindowStyle Hidden } catch { WLog ('probe-launch THREW ' + $_.Exception.Message) } }
+# v0.12.5:UIA 探锚(独立 powershell 进程,经 vbs 逃 Job)。拉起前先清上一代探针:
+# 探针无状态可安全重杀;不清则老探针占住独占锁、新探针秒退——若老探针已劣化为
+# 幽灵矩形(自愈接力只认空树形态,非空错值永不触发),劣化数据将永久接管
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -like '*anchor-probe-ui*' } |
+  ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch { } }
+$script:probeVbs = Join-Path $PSScriptRoot 'anchor-probe-launch.vbs'
+$script:nextProbeLaunch = (Get-Date).AddSeconds(10)
+if (Test-Path $script:probeVbs) { try { Start-Process wscript.exe -ArgumentList ('"' + $script:probeVbs + '"') -WindowStyle Hidden } catch { WLog ('probe-launch THREW ' + $_.Exception.Message) } }
+
+# v0.13:metrics 采集器(node,常驻 tail 双文件;宿主自身在 Job 外,子进程不被连坐)
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -like '*stats-widget*metrics.mjs*' } |
+  ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch { } }
+$script:metricsMjs = Join-Path $PSScriptRoot 'metrics.mjs'
+if (Test-Path $script:metricsMjs) {
+  # v0.13c:--experimental-sqlite(node 22.12 的 node:sqlite 需此旗;node 升级后若移除此旗会失效,需回归)
+  try { Start-Process node.exe -ArgumentList @('--experimental-sqlite', ('"' + $script:metricsMjs + '"')) -WindowStyle Hidden } catch { WLog ('metrics-launch THREW ' + $_.Exception.Message) }
+}
 
 # 进程退出兜底(正路 = Stop-Widget 显式清场)
 [AppDomain]::CurrentDomain.add_ProcessExit({
@@ -731,7 +795,7 @@ if (Test-Path $probeVbs) { try { Start-Process wscript.exe -ArgumentList ('"' + 
   } catch { }
 })
 
-if (-not $NoShowIfExists) { [StatsHost]::Show() }
+# v0.12.5f:启动不预显——状态机在首个稳定目标位出现后才显示(先确定位置再显示)
 [void](Attach-Zcode)
 [System.Windows.Threading.Dispatcher]::Run()
 Stop-Widget 'dispatcher-end'

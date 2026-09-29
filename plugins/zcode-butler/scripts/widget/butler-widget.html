@@ -65,9 +65,18 @@
   }
 
   /* ─── 展开态:贴边面板(形状由实测轮廓点平滑生成)──────────────
-     面板常驻固定,不参与滑入 / 滑出切换 */
+     展开(入):expo-out 起步快、丝滑减速停稳;收起(出):ease-in-cubic
+     加速滑出右缘,像被顺势收走(动效取自设计原型,v0.5.0 正式入库)。
+     纯水平位移 → 形状掩码 Y 量程不变(宿主 1/3 锚定只读 Y,零跳动),
+     X 掩码滑出窗外 → 自动点击穿透,宿主 ps1 零改动 */
   .panel-wrap {
     position: absolute; inset: 0;
+    transition: transform 0.62s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform;
+  }
+  .stage.minimized .panel-wrap {
+    transform: translateX(106%);
+    transition: transform 0.42s cubic-bezier(0.55, 0.055, 0.675, 0.19);
   }
 
   .panel-svg { position: absolute; inset: 0; display: block; }
@@ -77,6 +86,21 @@
     position: absolute;
     left: 265.5px;              /* 环外沿左缘 = 333 - 67.5 */
     width: 135px; height: 135px;
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 0.45s ease-out;
+  }
+  /* 展开时四环自顶部错峰归位(设计原型同款,第四环顺延 0.32s) */
+  .panel-wrap .meter:nth-of-type(1) { transition-delay: 0.08s; }
+  .panel-wrap .meter:nth-of-type(2) { transition-delay: 0.16s; }
+  .panel-wrap .meter:nth-of-type(3) { transition-delay: 0.24s; }
+  .panel-wrap .meter:nth-of-type(4) { transition-delay: 0.32s; }
+  /* 收起:四环无延迟,右漂 + 淡出,随面板顺势收走 */
+  .stage.minimized .panel-wrap .meter {
+    transform: translateX(52px);
+    opacity: 0;
+    transition: transform 0.3s cubic-bezier(0.55, 0.055, 0.675, 0.19),
+                opacity 0.24s ease-in;
+    transition-delay: 0s;
   }
   .meter svg.ring { position: absolute; inset: 0; }
   .meter .ring-track { stroke: var(--ring-track); }
@@ -316,8 +340,12 @@
     margin: calc(var(--pu, 0.5px) * 26) 0 calc(var(--pu, 0.5px) * 12);
   }
 
+  /* 收起时环详情弹窗一并隐去(环已出窗,不应残留) */
+  .stage.minimized ~ .usage-pop { opacity: 0; }
+
   @media (prefers-reduced-motion: reduce) {
-    .fab .disc, .fab .arc, .fab .gear-g { transition: none; }
+    .fab .disc, .fab .arc, .fab .gear-g,
+    .panel-wrap, .meter { transition: none; }
     body.peak-live .peak-halo { animation: none; }
     .usage-pop { transition: none; }
   }
@@ -560,17 +588,31 @@
   })();
 
   /* ── 弧线 ↔ 气泡的过渡由 CSS(:hover / :focus-within)完成;
-     点击齿轮仅作旋转反馈 ─────────────────────────────────────────── */
+     点击齿轮 = 展开/收起面板(设计原型同款滑动动效,状态持久化)+ 旋转反馈 ── */
   var gearG = document.getElementById('gearG');
+  var gearBtn = document.getElementById('gearBtn');
   var spinDeg = 0;
-  document.getElementById('gearBtn').addEventListener('click', function () {
+  var PANEL_MIN_KEY = 'butler-panel-minimized';
+  function applyPanelMin(minimized) {
+    stage.classList.toggle('minimized', minimized);
+    gearBtn.setAttribute('aria-expanded', String(!minimized));
+    if (minimized) {
+      var p = document.getElementById('usagePop');
+      if (p) p.classList.remove('on');   /* 环已出窗,弹窗不留残影 */
+    }
+  }
+  gearBtn.addEventListener('click', function () {
     spinDeg += 180;   /* 每次点击顺时针转半圈 */
     gearG.style.transform = 'rotate(' + spinDeg + 'deg)';
+    var next = !stage.classList.contains('minimized');
+    applyPanelMin(next);
+    try { localStorage.setItem(PANEL_MIN_KEY, String(next)); } catch (err) { }
     /* v0.4.10:点击后立即失焦——点击会把 DOM 焦点留在按钮,:focus-within 让齿轮
        气泡在光标离开后仍常驻不回退弧线(实测:点击→光标移远,fab 中心仍纯黑);
        键盘 Tab 聚焦的绽放不受影响(:focus-within 规则保留) */
     try { this.blur(); } catch (err) { }
   });
+  try { applyPanelMin(localStorage.getItem(PANEL_MIN_KEY) === 'true'); } catch (err) { }
 
   /* ── 高峰期判定:周一至周五 14:00–18:00 点亮 5h 环光晕;
       URL 加 ?peak=1(或 #peak)可在任意时间预览发光态 ─────────────── */
@@ -737,12 +779,21 @@
       if (!stage || !panel) return;
       var sr = stage.getBoundingClientRect();
       var kx = sr.width / 430, ky = sr.height / 2025;
+      /* v0.5.0:收起态 panel-wrap 带水平位移(transform),掩码采样须叠加
+         该位移——收起后胶囊 X 全部滑出窗外(点击穿透),Y 量程不变
+         (宿主 CapsuleExtent 只读 Y,1/3 锚定零跳动) */
+      var pwrap = document.getElementById('panelWrap');
+      var wrapTf = pwrap ? getComputedStyle(pwrap).transform : 'none';
+      var wrapDx = 0;
+      if (wrapTf && wrapTf !== 'none') {
+        try { wrapDx = new DOMMatrixReadOnly(wrapTf).e * kx; } catch (err) { }
+      }
       /* 胶囊轮廓:沿实际渲染的平滑路径每 4 舞台px 重采样(非 250 点折线)——
          rgn 紧贴曲线,高对比背景下边缘台阶最小化 */
       var PL = panel.getTotalLength(), caps = [], d, pp;
       for (d = 0; d <= PL; d += 4) {
         pp = panel.getPointAtLength(d);
-        caps.push([sr.left + pp.x * kx, sr.top + pp.y * ky]);
+        caps.push([sr.left + pp.x * kx + wrapDx, sr.top + pp.y * ky]);
       }
       /* 两桥铁律(v0.4.9 起拖动桥移除):桥内零设计坐标常量——fab 视口映射(.fab rect+viewBox)、
          描边宽(computed style)、命中圆(.fab-zone rect)全部运行时实测,
@@ -797,6 +848,14 @@
     }
     if (document.readyState === 'complete') { requestAnimationFrame(butlerReportShape); }
     else { window.addEventListener('load', function () { requestAnimationFrame(butlerReportShape); }); }
+    /* 展开/收起动画落定后重报形状:掩码 X 跟随面板进出(收起后穿透、展开后可拖),
+       Y 量程不变故宿主锚定不动;打断反转时只在最终态报一次(transitionend 语义) */
+    var pwrapForShape = document.getElementById('panelWrap');
+    if (pwrapForShape) {
+      pwrapForShape.addEventListener('transitionend', function (e) {
+        if (e.target === pwrapForShape && e.propertyName === 'transform') butlerReportShape();
+      });
+    }
   }
 </script>
 </body>

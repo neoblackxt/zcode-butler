@@ -1,6 +1,11 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
-# 码管家桌面悬浮窗 v0.4.10(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# 码管家桌面悬浮窗 v0.5.0(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# v0.5.0:面板展开/收起动效正式入库(自 v0.4.9-preview 缓存实验合入,用户验收
+#   "很喜欢"):展开 0.62s expo-out、收起 0.42s ease-in-cubic + translateX(106%),
+#   四环错峰归位;齿轮点击 = 展开/收起 + 旋转反馈,状态存 localStorage
+#   butler-panel-minimized。宿主零改动(纯水平位移:掩码 Y 量程不变锚定不动,
+#   X 滑出窗外自动穿透);transitionend 后重报形状(叠加 wrap 水平位移)。
 # v0.4.10:fab 齿轮气泡偶发不回退弧线,双根因双修——①HTML 侧:点击后 blur() 放焦
 #   (点击把 DOM 焦点留在按钮,:focus-within 使光标离开后气泡仍常驻;键盘 Tab 绽放保留);
 #   ②宿主侧:光标移入"窗内透明区"(HTTRANSPARENT,消息路由给下层 ZCode)时窗口收不到

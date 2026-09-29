@@ -126,10 +126,27 @@
     state = s;
     document.body.dataset.state = s;
     if (s === 'idle') { ttftEl.textContent = '—'; tpsEl.textContent = '—'; phaseEnd = demo ? now() + 6500 : Infinity; }
-    if (s === 'waiting') { ttft = 0; tpsEl.textContent = '—'; phaseEnd = now() + 900; }
-    if (s === 'streaming') { ttft = +rnd(0.42, 1.30).toFixed(2); ttftEl.textContent = ttft.toFixed(2) + 's'; tps = rnd(30, 50); phaseEnd = now() + holdMs; }
+    if (s === 'waiting') { if (demo) { ttft = 0; } tpsEl.textContent = '—'; phaseEnd = now() + 900; }
+    if (s === 'streaming') { if (demo) { ttft = +rnd(0.42, 1.30).toFixed(2); ttftEl.textContent = ttft.toFixed(2) + 's'; tps = rnd(30, 50); } phaseEnd = now() + holdMs; }
     if (s === 'done') { phaseEnd = now() + 2500; }
   }
+  // v0.13 真数据(v0.12.4 假值仅存于 demo)。速度位合一(用户拍板 2026-09-29):
+  // 流式中显示实时速度(最近完成调用的解码率),输出完毕切本轮平均;
+  // 首 token 位显示会话平均 TTFT。格式化对齐 oc-tps:≥100 取整 / ≥10 一位小数 / 否则两位
+  function fmtRate(x) { if (!(x > 0) || !isFinite(x)) return null; if (x >= 100) return String(Math.round(x)); if (x >= 10) return x.toFixed(1); return x.toFixed(2); }
+  function onStats(m) {
+    var p = m.phase;
+    setState(p === 'waiting' ? 'waiting' : (p === 'stream' ? 'streaming' : (p === 'done' ? 'done' : 'idle')));
+    if (m.ttft != null && +m.ttft >= 0) ttftEl.textContent = (+m.ttft).toFixed(1) + 's';   // oc-tps formatTtft:一位小数
+    var v = (p === 'done' && m.turnAvg != null) ? +m.turnAvg : (m.tps != null ? +m.tps : null);
+    var f = (v != null) ? fmtRate(v) : null;
+    if (f != null) tpsEl.textContent = f;
+    if (p !== lastAckedPhase) {   // 相位切换回执(宿主日志可审计端到端通路)
+      lastAckedPhase = p;
+      try { chrome.webview.postMessage('{"type":"statsAck","phase":"' + p + '"}'); } catch (err) { }
+    }
+  }
+  var lastAckedPhase = '';
   function next() {
     if (state === 'idle') return 'waiting';
     if (state === 'waiting') return 'streaming';
@@ -160,6 +177,7 @@
       if (m.type === 'state' && ['idle', 'waiting', 'streaming', 'done'].indexOf(m.v) >= 0) {
         setState(m.v, m.holdMs || 2500);
       }
+      if (m.type === 'stats') onStats(m);
       if (m.type === 'value' && m.k === 'ttft') ttftEl.textContent = (+m.v).toFixed(2) + 's';
       if (m.type === 'value' && m.k === 'tps') tpsEl.textContent = (+m.v).toFixed(1);
       if (m.type === 'demo') { demo = true; if (state === 'idle') setState('waiting'); }

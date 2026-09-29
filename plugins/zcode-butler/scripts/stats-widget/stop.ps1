@@ -7,3 +7,11 @@ Stop-ButlerInstance -Kind 'stats' -ProcessMatch 'stats-widget\.ps1'
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
   Where-Object { $_.CommandLine -like '*anchor-probe.mjs*' } |
   ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch { } }
+# v0.12.5:连带清 UIA 探锚(powershell 版,现行主用;老探针持独占锁会挡住新代拉起)
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -like '*anchor-probe-ui*' } |
+  ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch { } }
+# v0.13:连带清 metrics 采集器(node)
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -like '*stats-widget*metrics.mjs*' } |
+  ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch { } }

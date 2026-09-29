@@ -1,13 +1,19 @@
-# 码管家·性能浮标(stats-widget)v0.12.3
+# 码管家·性能浮标(stats-widget)v0.13e
 
 zcode-butler 双悬浮窗之二(另一个是右缘「用量面板」butler-widget)。悬浮在 ZCode
-输入框**右上方**,流式生成期间显示首 token 延迟与 decode 速度:
+输入框**右上方**,显示首 token 延迟与 decode 速度:
 
 ```
 (● ⚡ 首 token 0.86s)(▁▃▅ 38.4 tok/s)      ← B+E1 双胶囊,右缘贴输入框右缘
 ```
 
-当前为**假数据**(页面内四态周期轮播:空闲→等首token→流式中→完成)。真数据接入点见文末。
+**v0.13 起为真数据**(自缓存实验线合入):常驻采集器 `metrics.mjs`(node,
+`--experimental-sqlite`)双通道——实时通道读 UIA 转录层文字增量(~240ms 节拍)
+估实时 tok/s,真值通道只读 `~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表算
+会话平均/回合平均/TTFT 中位数,并自校准字符/token 比;输出契约
+`~/.zcode/stats-widget-metrics.json`,宿主 500ms 节流推页。**分会话**(v0.13e):
+app log 的 `session.resumed`(UI 打开/切换会话)即接管并按 db 历史重建该会话
+聚合——切到哪个会话就显示哪个会话自己的数据;workflow 子代理不抢屏。
 
 ## 定位与自适应(UIA 通道,v0.12.2 起)
 
@@ -63,9 +69,14 @@ done(定格 2.5s)。页面写 CSS px(WebView2 按 dpr 1.75 光栅化,视口=窗�
   `composerHalfWidthPx`(841)、`gapAbovePx`(8)、`showMaxComposerPx`(288)、
   `centerXOffset`(63)、`winW`/`winH`(0=自动 600x52)
 
-## 真数据接入(待办 v0.13)
+## 真数据(v0.13,已实现)
 
-数据源 `~/.zcode/cli/rollout/model-io-sess_<会话ID>.jsonl`(每行一次请求,含
-durationMs 与 response.usage)→ 宿主 tail 计算 → PostJson 推
-`{"type":"state","v":"waiting|streaming|done|idle"}` + 数值,页面四态语法已就绪:
-首token=请求延迟、tok/s=滑动窗口 output÷duration。
+`metrics.mjs` 常驻采集(宿主启动时拉起,stop.ps1 连带清理),双通道:
+- **实时**:`~/.zcode/stats-widget-live.jsonl`(探针写 UIA 转录层文字正增量)→
+  5s 滑窗 oc-tps 估实时速度;字符/token 比按调用时间窗对齐自校准(EMA)。
+- **真值**:`db.sqlite` `model_usage` 表(只读)增量吸收:会话平均=Σout/Σ(duration−ttft),
+  TTFT=近期中位数(冷缓存离群值不砸均值),NULL-ttft 行用最近已知值代理。
+- **会话归属**:app log `session.resumed` 为主信号(即切即重建);其余会话首个
+  model 请求跟随;`sess_dwf-*` 子代理永不接管。
+- 页面四态(waiting/streaming/done/idle)由 metrics.phase 驱动;`{"type":"demo"}`
+  仍可显式开启演示轮播。历史演进与已证伪路线(part 表流式、CDP 通道)见仓库开发日志。
