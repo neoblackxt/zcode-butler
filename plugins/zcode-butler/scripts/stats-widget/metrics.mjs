@@ -255,6 +255,9 @@ function pollModelUsage() {
 // UIA 侧栏选中态是唯一能看见"用户在看哪个会话"的信号。条目名 = "标题 相对时间",
 // 先按全名查,再剥尾部短 token(刚刚/4小时/2天…)查;查不到不切(安全退化)。
 let viewNameSeen = '';
+let viewTSeen = 0;
+let viewResolved = true;   // 上次该名字是否解析成功;失败则等探针 30s 心跳重试
+                           // (防改名竞态:侧栏先渲染新标题、db 落库滞后时,一次失败不终身卡死)
 function resolveSidByTitle(name) {
   if (!db && !openDb()) return '';
   const cands = [name];
@@ -275,9 +278,14 @@ function pollView() {
   try { txt = fs.readFileSync(viewFile, 'utf8'); } catch { return; }
   if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);   // 剥 BOM 再解析
   let j; try { j = JSON.parse(txt); } catch { return; }
-  if (!j || !j.name || j.name === viewNameSeen) return;
+  if (!j || !j.name) return;
+  const nameChanged = j.name !== viewNameSeen;
+  if (!nameChanged && viewResolved) return;               // 同名且已解析 → 无事
+  if (!nameChanged && j.t === viewTSeen) return;          // 同名同拍且上次失败 → 等下个心跳
   viewNameSeen = j.name;
+  viewTSeen = j.t;
   const sid = resolveSidByTitle(j.name);
+  viewResolved = !!sid;
   if (sid && sid !== activeSession) switchToSession(sid);
 }
 
