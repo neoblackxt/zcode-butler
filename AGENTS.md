@@ -27,8 +27,8 @@ plugins/zcode-butler/
     ├── news.mjs            ← 资讯(数据源可插拔)
     ├── status.mjs          ← 聚合器:--json 统一协议 / --hook 摘要
     ├── chat2doc/           ← extract / format_batch / merge_batch(.py)
-    ├── widget/             ← 用量面板悬浮窗(与 stats-widget 的公共机制在 lib/widget-common.ps1,C# 合成宿主为同构副本:改 A 必改 B)
-    └── stats-widget/       ← 性能浮标悬浮窗(v0.12+:输入框右上方 B+E1 双胶囊+UIA 探针自适应;同上公共机制)
+    ├── widget/             ← 用量面板悬浮窗(与 stats-widget 的公共机制在 lib/widget-common.ps1;C# 合成宿主的**合成链路**(初始化/DComp/消息泵)为同构副本:改 A 必改 B——命中策略层各窗自定:widget=形状掩码 HTCLIENT,stats=整窗穿透,勿互相同步)
+    └── stats-widget/       ← 性能浮标悬浮窗(v0.13f:输入框右上方 B+E1 双胶囊,UIA 探针自适应 + metrics.mjs 真数据采集器(db 真值/会话视图通道);同上公共机制)
 ```
 
 ## 插件生命周期纪律(本地 marketplace,v0.2.0 立规)
@@ -39,6 +39,7 @@ plugins/zcode-butler/
 - 更新链路:本仓库 →(marketplace 刷新,每日 ~02:30 自动)→ `~/.zcode/cli/plugins/marketplaces/zcode-plugins-personal/` 镜像 →(UI 点更新,原子换入)→ `…/cache/zcode-plugins-personal/zcode-butler/<版本>/`。**安装/更新的拷贝源是镜像不是本仓库**;手动同步镜像可让更新按钮立即出现
 - 三份副本:仓库(正本)↔ 镜像 ↔ 缓存;改仓库后需手动同步缓存(代码立即生效)与镜像(按钮立即生效),ZCode 只在自动刷新时同步镜像
 - **「三端」与「三份副本」口径对齐**(2026-09-30 用户澄清):交付口径的「三端」= 桌面源码 ↔ GitHub ↔ ZCode 缓存;本节「三份副本」= 仓库 ↔ 镜像 ↔ 缓存——差别只在第三份。本节数**镜像**而不数 GitHub:镜像是安装/更新的拷贝源且会静默漂移(每日 ~02:30 才自刷),须同步纪律盯住;GitHub 与桌面仓库是同一 git 内容(push 即同步,不算独立副本),且镜像本身是 git clone(origin=GitHub),「手动同步镜像」= `git fetch origin && git reset --hard origin/main`,经 GitHub 中转。物理上共四份:桌面仓库 / GitHub / 镜像 / 缓存;桌面↔GitHub 归 git 管,镜像↔GitHub 由 ZCode 自动刷新(或手动 reset),日常只需核对三端一致
+- **缓存实验纪律**(2026-09-30 立规,v0.12.5/v0.13/v0.4.9-preview 三弧验证的模式):未定案的功能实验**只进缓存不进仓库**(改 HTML/JS 同段编辑或整文件覆写,ps1 若无改动直接覆写),仓库与镜像保持发布线;实验态必须留痕——开发日志条目标注「缓存侧」,并写记忆(zcode 项目记忆目录)登记待验收项与回退路径,防会话中断丢上下文。用户拍板后:合入 = 差异回仓库、升版本、补日志/WIKI、清理对应记忆、三端同步;回退 = 仓库正本覆盖缓存重启。**有未验收实验时禁止点插件「更新」按钮**(更新会从镜像装发布线并移除旧版本目录,实验随缓存目录一起被换掉)
 - **悬浮窗进程必须对插件缓存目录零句柄**:WebView2 DLL 只从 `%LOCALAPPDATA%\zcode-butler\runtime\webview2\` staging 加载(`scripts/lib/runtime.mjs` 维护)。任何"直接从插件目录 LoadFrom/LoadLibrary/打开文件长持句柄"的新代码都违反本纪律——ZCode 卸载=rm 缓存目录,遇锁 EPERM 且无重试无回滚,必留半删残尸
 - **hook 拉起常驻进程一律走 .vbs 中转**(wscript 的 `WScript.Shell.Run`):exec/hook 链的 Windows Job 会连坐 node 直 spawn 的子进程(秒退 EXIT 0 连脚本都没执行,表象="启动了但没起来")
 - 悬浮窗换代对账:实例 stamp 在 `%LOCALAPPDATA%\zcode-butler\runtime\instance-*.json`,动互斥量逻辑前先读两个 ps1 的 mutex 段注释
