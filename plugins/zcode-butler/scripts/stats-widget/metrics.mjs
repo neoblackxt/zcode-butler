@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * metrics.mjs — v0.13d 性能浮标真数据采集器(码管家 stats-widget)
+ * metrics.mjs — v0.13f 性能浮标真数据采集器(码管家 stats-widget)
  * 需以 node --experimental-sqlite 启动(宿主 spawn 已带;node:sqlite 在 22.12 为实验特性)。
  *
  * 双通道架构(2026-09-29 定案,方案②):
@@ -12,12 +12,14 @@
  *             自校准 chars/token 比(初值 3.2,EMA)。
  * 已证伪勿回头:part 表 text/reasoning 行流式期间不增长(完成时一次性落库,实验
  *   part-trans.txt);"db.sqlite/WAL 流式冻结"是文件尺寸观测盲区,但行也不流式。
- * 偏差声明:①实时 token 数=字符/校准比(真值只在调用末);②UIA 读的是渲染层文本
- *   (思考折叠的负增量已滤;Markdown 加工差由校准比吸收);③「当前会话」双信号
- *   (v0.13e):app log 的 session.resumed(UI 打开/切换会话)为主信号,立即接管并按
- *   db 历史重建该会话聚合(切换即显示该会话自己的数据);其余会话的
- *   model.request.started/turn.started 为跟随信号(其首个请求才接管,workflow
- *   子代理 sess_dwf-* 永不接管);启动引导 = 最近 model_usage 写入者。
+ * 偏差声明:①实时 token 数=字符/校准比(真值只在调用末);**实时通道已停用**
+ *   (UIA 转录层与 stdio wrapper 两案皆败,等官方接口;tok/s 显示会话平均);
+ *   ②「当前会话」三信号(v0.13f):(a) **UIA 视图通道为主**——探针扫侧栏选中条目
+ *   (bg-selected 的 task-row)写标题到 stats-widget-view.json,本进程查 db
+ *   session.title 映射回会话(切回已驻留会话时 app log 静默,UIA 是唯一视图信号);
+ *   (b) app log 的 session.resumed(非驻留打开/恢复);(c) 其余会话首个
+ *   model.request.started/turn.started 跟随(workflow 子代理 sess_dwf-* 永不接管);
+ *   启动引导 = 最近 model_usage 写入者。三者汇入同一"切换 + 按 db 历史重建"。
  * 输出契约 ~/.zcode/stats-widget-metrics.json:
  *   {"t":ms,"phase":"idle|waiting|stream|done","tps":n|null,"turnAvg":n|null,"ttft":s|null}
  */
@@ -28,6 +30,7 @@ const { DatabaseSync } = await import('node:sqlite');
 const dot = path.join(process.env.USERPROFILE, '.zcode');
 const outFile = path.join(dot, 'stats-widget-metrics.json');
 const liveFile = path.join(dot, 'stats-widget-live.jsonl');
+const viewFile = path.join(dot, 'stats-widget-view.json');
 const dbPath = path.join(dot, 'cli', 'db', 'db.sqlite');
 const logDir = path.join(dot, 'cli', 'log');
 
@@ -247,7 +250,45 @@ function pollModelUsage() {
   }
 }
 
+// ---- 会话视图通道(v0.13f):探针写的侧栏选中条目标题 → db session.title 映射回会话 ----
+// 补 session.resumed 盲区:切回"已驻留"会话 app log 零事件(2026-09-30 实测),
+// UIA 侧栏选中态是唯一能看见"用户在看哪个会话"的信号。条目名 = "标题 相对时间",
+// 先按全名查,再剥尾部短 token(刚刚/4小时/2天…)查;查不到不切(安全退化)。
+let viewNameSeen = '';
+function resolveSidByTitle(name) {
+  if (!db && !openDb()) return '';
+  const cands = [name];
+  const cut = name.replace(/\s+\S{1,6}$/, '');
+  if (cut && cut !== name) cands.push(cut);
+  for (const t of cands) {
+    try {
+      const r = db.prepare(
+        'SELECT id FROM session WHERE title = ? AND task_type = ? ORDER BY time_updated DESC LIMIT 1'
+      ).get(t, 'interactive');
+      if (r && r.id) return r.id;
+    } catch { db = null; return ''; }
+  }
+  return '';
+}
+function pollView() {
+  let txt;
+  try { txt = fs.readFileSync(viewFile, 'utf8'); } catch { return; }
+  if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);   // 剥 BOM 再解析
+  let j; try { j = JSON.parse(txt); } catch { return; }
+  if (!j || !j.name || j.name === viewNameSeen) return;
+  viewNameSeen = j.name;
+  const sid = resolveSidByTitle(j.name);
+  if (sid && sid !== activeSession) switchToSession(sid);
+}
+
 // ---- app log:相位 + 会话归属 ----
+function switchToSession(sid) {
+  activeSession = sid;
+  const n = rebuildSessionAggregates(sid);
+  phase = n > 0 ? 'done' : 'idle';
+  lastActivity = Date.now();
+  writeMetrics(true);
+}
 function onLogLine(line) {
   if (!line || (line.indexOf('"event":"model.') < 0 && line.indexOf('"event":"turn.') < 0 &&
                 line.indexOf('"event":"session.resumed"') < 0)) return;
@@ -255,13 +296,8 @@ function onLogLine(line) {
   if (!j || !j.sessionId) return;
   if (j.sessionId !== activeSession) {
     if (j.event === 'session.resumed') {
-      // v0.13e UI 打开/切换会话:立即接管 + 按该会话 db 历史重建聚合,胶囊随即
-      // 显示该会话自己的数据(纯查看也切,不再等首个请求)
-      activeSession = j.sessionId;
-      const n = rebuildSessionAggregates(activeSession);
-      phase = n > 0 ? 'done' : 'idle';
-      lastActivity = Date.now();
-      writeMetrics(true);
+      // v0.13e UI 打开/切换会话(非驻留):立即接管 + 按该会话 db 历史重建聚合
+      switchToSession(j.sessionId);
       return;
     }
     // 其他会话的事件:仅跟随其首个请求(原启发式);workflow 子代理永不接管(非用户所看)
@@ -283,6 +319,7 @@ setInterval(() => {
   try {
     pollLive();
     pollModelUsage();
+    pollView();
     const tl = todayLog();
     if (tl && (!logTail || logTail.file !== tl)) { if (logTail) try { fs.closeSync(logTail.fd); } catch { } logTail = openReader(tl, true); }
     for (const l of readNew(logTail)) onLogLine(l);

@@ -151,6 +151,37 @@ function Read-LiveText {
     $script:liveLen = $len
   } catch { Diag ('live ERR ' + $_.Exception.Message) }
 }
+# ---- v0.13f 会话视图通道:每 ~2s(16 tick)扫侧栏选中条目 → 写当前会话标题到
+# stats-widget-view.json {"t":ms,"name":"标题 相对时间"}(单写者直写,UTF-8 无 BOM)。
+# metrics.mjs 查 db session.title 映射回会话并切换重建——补 session.resumed 的盲区:
+# 切回"已驻留"会话时 app log 完全静默(2026-09-30 实测:切走有 resumed、切回零事件,
+# 直到发首条消息),UIA 侧栏选中态(bg-selected 的 task-row)是唯一能看见
+# "用户在看哪个会话"的通道。侧栏收起/当前行不可见 → 无条目 → 不写,metrics 保持
+# 上次归属;非聊天页同理,显隐不受影响。
+$viewFile = Join-Path $dot 'stats-widget-view.json'
+$script:tickView = 0
+$script:lastViewName = $null
+$script:lastViewT = 0
+function Write-View {
+  try {
+    $btns = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)
+    $name = $null
+    foreach ($b in $btns) {
+      try {
+        $cls = $b.Current.ClassName
+        if ($cls -and $cls.Contains('task-row') -and $cls.Contains('bg-selected')) { $name = $b.Current.Name; break }
+      } catch { }
+    }
+    $now = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+    if ($name -and (($name -ne $script:lastViewName) -or ($now - $script:lastViewT -gt 30000))) {
+      $script:lastViewName = $name
+      $script:lastViewT = $now
+      $j = '{{"t":{0},"name":{1}}}' -f $now, ($name | ConvertTo-Json)
+      [System.IO.File]::WriteAllText($viewFile, $j, (New-Object System.Text.UTF8Encoding($false)))
+    }
+  } catch { }
+}
+
 # ---- v0.12.5g:探针只报真值 + 身份判定,不做任何节流 ----
 # 确认期/十字校验/源闩锁/none 去抖全部拆除:宿主状态机已用「flux 即隐藏、稳定才现身」
 # 消化一切过渡态,探针侧任何"憋值"都只会推迟消失(v0.12.5f 实测消失慢 ~360ms 即憋旧值所致)。
@@ -339,5 +370,8 @@ while ($true) {
   # v0.13d:转录区字符流采样(每 2 轮 ≈240ms;重取防陈旧快照)
   $script:tickLive++
   if (($script:tickLive % 2) -eq 0) { Read-LiveText }
+  # v0.13f:会话视图采样(每 16 轮 ≈2s;变化或 30s 心跳才写)
+  $script:tickView++
+  if (($script:tickView % 16) -eq 0) { Write-View }
   Start-Sleep -Milliseconds 120
 }
