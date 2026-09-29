@@ -158,6 +158,7 @@ public static class ButlerHost {
   private static int[] _maskX, _maskY;
   private static int _maskN;
   private static int _fabX, _fabY, _fabR;
+  private static int _toastL, _toastT, _toastR, _toastB;   // v0.5.1 通知卡命中矩形(客户区物理px;R<=L=卡隐藏)
 
   public static Action<string> OnMessage;
   public static Action OnHotKey;
@@ -450,9 +451,19 @@ public static class ButlerHost {
     try { ApplyFollowGeom(false); } catch { }
   }
 
+  // v0.5.1:通知卡命中矩形(客户区物理 px,页面 shape.toast × dpr)。卡是胶囊+fab 之外
+  // 唯一可交互面——矩形并入 MaskHit 卡上按钮才可点;空矩形(R<=L)=卡隐藏,区域回穿透。
+  // 卡进出时页面会重报 shape(带/不带 toast 字段),此方法随之切换;Y 不进 CapsuleExtent
+  // (锚定只看胶囊,fab 下沿已在卡下沿之上,容纳判定不受影响)
+  public static void SetToastRect(int l, int t, int r, int b) {
+    _toastL = l; _toastT = t; _toastR = r; _toastB = b;
+    Log(_toastR > _toastL ? ("toast rect=" + l + "," + t + "," + r + "," + b) : "toast rect=off");
+  }
+
   private static bool MaskHit(int screenX, int screenY) {
     var p = new POINT { X = screenX, Y = screenY };
     ScreenToClient(_hwnd, ref p);
+    if (_toastR > _toastL && p.X >= _toastL && p.X <= _toastR && p.Y >= _toastT && p.Y <= _toastB) return true;
     if (_fabR > 0) {
       long dx = p.X - _fabX, dy = p.Y - _fabY;
       if (dx * dx + dy * dy <= (long)_fabR * _fabR) return true;
@@ -559,6 +570,11 @@ $script:winW = [int][Math]::Ceiling((265.0 + 780.0 * $popScale + 60.0 * $popScal
 $script:pageFile = Join-Path $env:TEMP ('butler-widget-page-{0}.html' -f [Guid]::NewGuid().ToString('N'))
 try { Copy-Item -LiteralPath $htmlFile -Destination $script:pageFile -Force } catch { $script:pageFile = $htmlFile }
 
+# v0.5.1:活动提醒手动注入通道(真机测试/演示用):写 %TEMP%\butler-widget-notify.json
+# 内容 {"title":"活动提醒","body":"…"} → 250ms 内推页面 notify 消息并删文件(见 wakeTimer)。
+# 生产端(status.mjs 阈值判定)接 notify 桥后此文件仍是合法的手动兜底入口
+$script:notifyFile = Join-Path $env:TEMP 'butler-widget-notify.json'
+
 # 页面实测形状(shape 消息):胶囊视口坐标 + dpr → NCHITTEST 掩码
 $script:pageDpr = 0
 $script:shapeCapsule = $null
@@ -602,6 +618,17 @@ function Push-Data {
           $fr = [int][Math]::Round([double]$script:shapeFabR * $dpr)
         }
         [ButlerHost]::SetHitMask($xs, $ys, $cap.Count, $fx, $fy, $fr)
+        # v0.5.1:通知卡矩形(显时 [l,t,r,b] CSS px / 隐时 null)并入命中掩码——
+        # 卡上「知道了/稍后」可点的前提;页面卡进出会重报 shape,此处随之开/关
+        if ($o.toast) {
+          [ButlerHost]::SetToastRect(
+            [int][Math]::Round([double]$o.toast[0] * $dpr),
+            [int][Math]::Round([double]$o.toast[1] * $dpr),
+            [int][Math]::Round([double]$o.toast[2] * $dpr),
+            [int][Math]::Round([double]$o.toast[3] * $dpr))
+        } else {
+          [ButlerHost]::SetToastRect(0, 0, 0, 0)
+        }
       } catch { WLog ('shape THREW: ' + $_.Exception.Message) }
     }
     elseif ($msg -like '*ready*') { $script:pageReady = $true; Push-Data }
@@ -843,6 +870,16 @@ $rescanTimer.Start()
 $wakeTimer = New-Object System.Windows.Threading.DispatcherTimer
 $wakeTimer.Interval = [TimeSpan]::FromMilliseconds(250)
 $wakeTimer.Add_Tick({
+  # v0.5.1:notify 注入文件存在即推一条提醒给页面(推完即删;解析失败也删,防每拍重试卡死)
+  if ($script:pageReady -and (Test-Path $script:notifyFile)) {
+    try {
+      $n = Get-Content $script:notifyFile -Raw -Encoding UTF8 | ConvertFrom-Json
+      $payload = @{ title = [string]$n.title; body = [string]$n.body } | ConvertTo-Json -Compress
+      [ButlerHost]::PostJson(('{"type":"notify","payload":' + $payload + '}'))
+      WLog ('notify injected: ' + $payload)
+    } catch { WLog ('notify THREW: ' + $_.Exception.Message) }
+    try { Remove-Item $script:notifyFile -Force -ErrorAction SilentlyContinue } catch { }
+  }
   $wake = $showEvt.WaitOne(0)
   $wi = Get-Item $wakeFile -ErrorAction SilentlyContinue
   if ($wi -and $wi.LastWriteTimeUtc -gt $script:lastWake) {
