@@ -1,6 +1,11 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
-# 码管家桌面悬浮窗 v0.4.9(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# 码管家桌面悬浮窗 v0.4.10(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# v0.4.10:fab 齿轮气泡偶发不回退弧线,双根因双修——①HTML 侧:点击后 blur() 放焦
+#   (点击把 DOM 焦点留在按钮,:focus-within 使光标离开后气泡仍常驻;键盘 Tab 绽放保留);
+#   ②宿主侧:光标移入"窗内透明区"(HTTRANSPARENT,消息路由给下层 ZCode)时窗口收不到
+#   鼠标消息,TME_LEAVE 对该路径不可靠 → WM_NCHITTEST 判为透明且仍在跟踪时,确定性
+#   补发 MouseLeave 清 :hover。像素诊断:点击或滑出后 fab 中心仍 rgb(3,3,3) 纯黑即卡。
 # v0.4.9:拖动整体移除(用户拍板:面板固定位置)——页面 pointerdown 拖动桥、
 #   宿主 DragMove/drag 路由、WM_NCLBUTTONDOWN/HTCAPTION/ReleaseCapture 专用件
 #   三处同删;位置恒为 1/3 锚定(此前拖动本就仅临时挪动,下次 ZCode 移动即回锚)。
@@ -482,7 +487,17 @@ public static class ButlerHost {
     switch (msg) {
       case WM_NCHITTEST: {
         int sx = (short)((int)lp & 0xFFFF), sy = (short)(((int)lp >> 16) & 0xFFFF);
-        return (IntPtr)(MaskHit(sx, sy) ? HTCLIENT : HTTRANSPARENT);
+        bool mhit = MaskHit(sx, sy);
+        // v0.4.10:光标移到本窗"窗内透明区"(HTTRANSPARENT,鼠标路由给下层 ZCode)时,
+        // 窗口收不到任何鼠标消息,TME_LEAVE 的 WM_MOUSELEAVE 对此路径不可靠(实测:
+        // fab 悬停滑出到窗内透明区,齿轮气泡偶发不回退弧线)。改为确定性补发:每次
+        // NCHITTEST 判为透明且仍在跟踪鼠标,即向页面补送 MouseLeave 清 :hover;
+        // _trackingMouse 复位后幂等,重入掩码区由下一条 WM_MOUSEMOVE 重新武装
+        if (!mhit && _trackingMouse) {
+          _trackingMouse = false;
+          if (_controller != null) { try { _controller.SendMouseInput((CoreWebView2MouseEventKind)675, 0, 0, new Point(0, 0)); } catch { } }
+        }
+        return (IntPtr)(mhit ? HTCLIENT : HTTRANSPARENT);
       }
       case WM_MOUSEMOVE: case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK:
       case WM_RBUTTONDOWN: case WM_RBUTTONUP: case WM_RBUTTONDBLCLK:

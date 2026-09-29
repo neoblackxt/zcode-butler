@@ -566,6 +566,10 @@
   document.getElementById('gearBtn').addEventListener('click', function () {
     spinDeg += 180;   /* 每次点击顺时针转半圈 */
     gearG.style.transform = 'rotate(' + spinDeg + 'deg)';
+    /* v0.4.10:点击后立即失焦——点击会把 DOM 焦点留在按钮,:focus-within 让齿轮
+       气泡在光标离开后仍常驻不回退弧线(实测:点击→光标移远,fab 中心仍纯黑);
+       键盘 Tab 聚焦的绽放不受影响(:focus-within 规则保留) */
+    try { this.blur(); } catch (err) { }
   });
 
   /* ── 高峰期判定:周一至周五 14:00–18:00 点亮 5h 环光晕;
