@@ -369,7 +369,7 @@
     position: absolute;
     left: 0; top: 0;
     width: calc(var(--pu, 0.5px) * 780);
-    height: calc(var(--pu, 0.5px) * 700);
+    height: calc(var(--pu, 0.5px) * var(--pop-h, 700));  /* --pop-h 由 fitPopHeight 按内容实测设置 */
     opacity: 0;
     transform: translateX(calc(var(--pu, 0.5px) * -14));
     transition: opacity 0.16s ease-out,
@@ -403,7 +403,7 @@
   .pop-head {
     display: flex;
     align-items: center;
-    gap: calc(var(--pu, 0.5px) * 18);
+    gap: calc(var(--pu, 0.5px) * 12);
   }
   .pop-logo {
     width: calc(var(--pu, 0.5px) * 46);
@@ -417,6 +417,8 @@
     font-weight: 700;
     letter-spacing: 0.005em;
     color: #f7f7f7;
+    white-space: nowrap;   /* 头部四件套超宽时禁折行(实测折行=第一行"跑"),宁缩字号 */
+    flex: none;
   }
   /* v0.6.2 临时刷新按钮(zcode-watch WPF 卡片右上 ↻ 同款语义:点击即时拉新数) */
   .pop-refresh {
@@ -437,6 +439,28 @@
   .pop-refresh:hover { color: #f0f0f0; background: rgba(255, 255, 255, 0.06); }
   .pop-refresh:disabled { color: #565656; cursor: default; background: transparent; }
   .pop-refresh:focus-visible { outline: 2px solid rgba(245, 245, 245, 0.8); outline-offset: 2px; }
+  /* 5h 头部拥挤(标志+长标题+徽标占满 618 内容宽),刷新收成图标腾位 */
+  .pop-refresh.icon-only { padding: calc(var(--pu, 0.5px) * 6) calc(var(--pu, 0.5px) * 8); }
+  /* v0.6.3:5h 头部 BigModel 徽标(ZCode 模型设置页同款胶囊:
+     border-border + bg-surface + ui-xs,来源 packages/ui SettingsResourceGroup 族);
+     内联趋势小图标 + 档位配额文案,色随文字 */
+  .pop-qbadge {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--pu, 0.5px) * 5);
+    border: 1px solid rgba(64, 153, 255, 0.30);
+    border-radius: 999px;
+    background: rgba(64, 153, 255, 0.08);
+    box-shadow: 0 0 0 3px rgba(64, 153, 255, 0.05);   /* 极淡蓝外圈(用户指定包裹) */
+    padding: calc(var(--pu, 0.5px) * 3) calc(var(--pu, 0.5px) * 10);
+    font-size: calc(var(--pu, 0.5px) * 22);
+    font-weight: 500;
+    line-height: 1.2;
+    color: #c6d4ec;
+    white-space: nowrap;
+    align-self: center;
+  }
+  .pop-qbadge svg { width: calc(var(--pu, 0.5px) * 18); height: calc(var(--pu, 0.5px) * 18); flex: none; }
   .pop-row {
     display: flex;
     justify-content: space-between;
@@ -545,6 +569,113 @@
     font-size: calc(var(--pu, 0.5px) * 23);
     color: #8f8f8f;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* ─── v0.6.3:5h 弹框 ZCode 风格内容层(?v=1..5 切换,默认 V1 定稿)───
+     设计令牌逐值取自 zai-org/ZCode theme-zai-dark(packages/ui/src/styles.css),
+     速查表见桌面《ZCode页面提取/设计令牌速查.md》 */
+  .zv {
+    --zc-surface: rgba(255, 255, 255, 0.05);
+    --zc-surface70: rgba(255, 255, 255, 0.045);
+    --zc-border: rgba(255, 255, 255, 0.1);
+    --zc-fg: #d4d4d4;
+    --zc-subtle: rgba(212, 212, 212, 0.6);
+    --zc-track: rgba(255, 255, 255, 0.08);
+    --zc-c1: #4099ff; --zc-c2: #46bf72; --zc-c3: #7b5ce5;
+    --zc-c4: #ff5c5c; --zc-c5: #ff8a30; --zc-c6: #42c8c8;
+    color: var(--zc-fg);
+    font-variant-numeric: tabular-nums;
+  }
+  .zv .zv-card {
+    border-radius: calc(var(--pu, 0.5px) * 12);
+    background: var(--zc-surface70);
+    border: 1px solid var(--zc-border);
+    padding: calc(var(--pu, 0.5px) * 14);
+  }
+  .zv .zv-xs { font-size: calc(var(--pu, 0.5px) * 22); }
+  .zv .zv-sm { font-size: calc(var(--pu, 0.5px) * 25); }
+  .zv .zv-base { font-size: calc(var(--pu, 0.5px) * 29); }
+  .zv .zv-lg { font-size: calc(var(--pu, 0.5px) * 33); font-weight: 500; }
+  .zv .zv-xl { font-size: calc(var(--pu, 0.5px) * 40); font-weight: 600; }
+  .zv .zv-sub { color: var(--zc-subtle); }
+  .zv .zv-row { display: flex; justify-content: space-between; align-items: baseline; gap: calc(var(--pu, 0.5px) * 10); min-width: 0; }
+  .zv .zv-track {
+    height: calc(var(--pu, 0.5px) * 8);
+    border-radius: 999px;
+    background: var(--zc-track);
+    overflow: hidden;
+  }
+  .zv .zv-track i { display: block; height: 100%; border-radius: inherit; min-width: calc(var(--pu, 0.5px) * 8); }
+  .zv .zv-swatch {
+    width: calc(var(--pu, 0.5px) * 14);
+    height: calc(var(--pu, 0.5px) * 14);
+    border-radius: calc(var(--pu, 0.5px) * 4);
+    flex: none;
+  }
+  .zv .zv-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--pu, 0.5px) * 6);
+    border: 1px solid var(--zc-border);
+    border-radius: 999px;
+    padding: calc(var(--pu, 0.5px) * 3) calc(var(--pu, 0.5px) * 10);
+    color: var(--zc-fg);
+    white-space: nowrap;
+  }
+  .zv .zv-chip b {
+    width: calc(var(--pu, 0.5px) * 10);
+    height: calc(var(--pu, 0.5px) * 10);
+    border-radius: 50%;
+    background: var(--zc-c5);
+    flex: none;
+  }
+  .zv .zv-strip {
+    border-radius: calc(var(--pu, 0.5px) * 12);
+    background: var(--zc-surface);
+    border: 1px solid var(--zc-border);
+    display: flex;
+    align-items: stretch;
+  }
+  .zv .zv-cell { flex: 1; min-width: 0; text-align: center; padding: calc(var(--pu, 0.5px) * 10) calc(var(--pu, 0.5px) * 6); }
+  .zv .zv-cell .v { font-size: calc(var(--pu, 0.5px) * 31); font-weight: 500; }
+  .zv .zv-cell .k { font-size: calc(var(--pu, 0.5px) * 23); color: var(--zc-subtle); margin-top: calc(var(--pu, 0.5px) * 3); }
+  .zv .zv-div { width: 1px; background: var(--zc-border); margin: calc(var(--pu, 0.5px) * 8) 0; flex: none; }
+  .zv .zv-leg { display: flex; flex-wrap: wrap; gap: calc(var(--pu, 0.5px) * 8) calc(var(--pu, 0.5px) * 14); }
+  .zv .zv-leg .it { display: flex; align-items: center; gap: calc(var(--pu, 0.5px) * 7); min-width: 0; }
+  .zv .mono {
+    font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New',
+      'Microsoft YaHei', 'PingFang SC', monospace;
+    font-weight: 500;
+  }
+  .zv .zv-stack { display: flex; height: calc(var(--pu, 0.5px) * 14); border-radius: 999px; overflow: hidden; }
+  .zv .zv-stack i { height: 100%; }
+  .zv .zv-mt6 { margin-top: calc(var(--pu, 0.5px) * 6); }
+  .zv .zv-mt10 { margin-top: calc(var(--pu, 0.5px) * 10); }
+  .zv .zv-mt12 { margin-top: calc(var(--pu, 0.5px) * 12); }
+  .zv .zv-mt14 { margin-top: calc(var(--pu, 0.5px) * 14); }
+  /* 额度卡(bigmodel 控制台排布:标签+ⓘ / 大字%已使用 / 细条 / 重置时间) */
+  .zv .zv-qlabel { font-weight: 500; }
+  .zv .zv-vrow {
+    display: flex;
+    align-items: baseline;
+    gap: calc(var(--pu, 0.5px) * 10);
+  }
+  .zv .zv-info {
+    width: calc(var(--pu, 0.5px) * 24);
+    height: calc(var(--pu, 0.5px) * 24);
+    color: rgba(255, 255, 255, 0.3);
+    margin-left: calc(var(--pu, 0.5px) * 8);
+    flex: none;
+    vertical-align: -0.12em;
+  }
+  /* 头下一行 meta(zcode-usage 同款:左对齐单行小字「更新于」,暗灰) */
+  .zv .zv-metaline {
+    font-size: calc(var(--pu, 0.5px) * 22);
+    color: rgba(212, 212, 212, 0.45);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* 收起时环详情弹窗一并隐去(环已出窗,不应残留) */
@@ -675,6 +806,7 @@
           </svg>
         </span>
         <h2 class="pop-title" id="popTitle" data-od-id="popup-title">用量详情</h2>
+        <span class="pop-qbadge" id="popQBadge" data-od-id="popup-quota-badge" hidden></span>
         <button class="pop-refresh" id="popRefresh" type="button" title="立即刷新"
                 aria-label="立即刷新" data-od-id="popup-refresh">↻ 刷新</button>
       </header>
@@ -1017,85 +1149,313 @@
     return '还剩 ' + min + ' 分钟';
   }
 
+  /* ── v0.6.3:5h 头部 BigModel 标识(用户指定,样式取自 ZCode 模型设置页):
+     [BigModel 菱形标(SVG 逐路径抄 logo-bigmodel.svg)] GLM Coding Pro [↗ 150%配额胶囊]。
+     「150%配额」= 用户 ZCode 界面显示的套餐倍率,出自订阅接口(本插件未接)——
+     按用户原话字面常量;若要真数据需接订阅 API,或套餐变化时手改此常量。
+     其他环弹框还原星芒 logo 与原标题,互不影响 ── */
+  var PLAN_QUOTA_LABEL = '150%配额';
+  var BM_INFO_ICON = '<svg class="zv-info" viewBox="0 0 16 16" fill="none" aria-hidden="true">'
+    + '<circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.3"/>'
+    + '<rect x="7.3" y="6.8" width="1.4" height="4.4" rx="0.7" fill="currentColor"/>'
+    + '<circle cx="8" cy="4.9" r="0.9" fill="currentColor"/></svg>';
+  var BM_TREND_ICON = '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true">'
+    + '<path d="M2 11 L6.2 6.8 L9.2 9.8 L14 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="M10.6 5 H14 V8.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '</svg>';
+  var BM_LOGO_INNER = '<g clip-path="url(#bmClip)">'
+    + '<path d="M8.00351 0.142578L14.9084 8.01458L8.00351 15.883L1.10217 8.01458L8.00351 0.142578Z" fill="white"/>'
+    + '<path d="M14.9084 4.07858V8.01102H13.8417C13.8417 8.01102 11.7013 8.12124 9.87372 6.25813C7.96083 4.30613 8.0035 1.78169 8.0035 1.78169V0.142578L14.9084 4.07858Z" fill="url(#bmG0)"/>'
+    + '<path d="M1.10217 4.07858V8.01102H2.16884C2.16884 8.01102 4.30928 8.12124 6.13684 6.25813C8.04973 4.30613 8.00706 1.78169 8.00706 1.78169V0.142578L1.10217 4.07858Z" fill="url(#bmG1)"/>'
+    + '<path d="M1.10217 11.9474V8.01491H2.16884C2.16884 8.01491 4.30928 7.90468 6.13684 9.76779C8.04973 11.7198 8.00706 14.2442 8.00706 14.2442V15.8833L1.10217 11.9474Z" fill="url(#bmG2)"/>'
+    + '<path d="M14.9084 11.9474V8.01491H13.8417C13.8417 8.01491 11.7013 7.90468 9.87372 9.76779C7.96083 11.7198 8.0035 14.2442 8.0035 14.2442V15.8833L14.9084 11.9474Z" fill="url(#bmG3)"/>'
+    + '</g>'
+    + '<defs>'
+    + '<linearGradient id="bmG0" x1="8.00484" y1="4.07834" x2="14.9077" y2="4.07834" gradientUnits="userSpaceOnUse"><stop stop-color="#8C8AF4"/><stop offset="1" stop-color="#2556D3"/></linearGradient>'
+    + '<linearGradient id="bmG1" x1="1.10217" y1="4.07834" x2="8.00501" y2="4.07834" gradientUnits="userSpaceOnUse"><stop stop-color="#8C8AF4"/><stop offset="1" stop-color="#2556D3"/></linearGradient>'
+    + '<linearGradient id="bmG2" x1="1.10217" y1="11.9478" x2="8.00501" y2="11.9478" gradientUnits="userSpaceOnUse"><stop stop-color="#3091D6"/><stop offset="1" stop-color="#89A2F4"/></linearGradient>'
+    + '<linearGradient id="bmG3" x1="8.00484" y1="11.9478" x2="14.9077" y2="11.9478" gradientUnits="userSpaceOnUse"><stop stop-color="#2362D2"/><stop offset="1" stop-color="#8898F3"/></linearGradient>'
+    + '<clipPath id="bmClip"><rect width="16" height="16" fill="white"/></clipPath>'
+    + '</defs>';
+  var popHeadLogo = document.querySelector('.pop-logo svg');
+  function renderStarLogo() {   /* 其余 kind:还原十二芒星(与启动 IIFE 同参数重建) */
+    if (!popHeadLogo) return;
+    var NS = 'http://www.w3.org/2000/svg', C = 22, R0 = 3.5, R1 = 16, html = '';
+    for (var i = 0; i < 12; i++) {
+      var a = i * Math.PI / 6;
+      html += '<line x1="' + (C + R0 * Math.cos(a)).toFixed(2) + '" y1="' + (C + R0 * Math.sin(a)).toFixed(2)
+        + '" x2="' + (C + R1 * Math.cos(a)).toFixed(2) + '" y2="' + (C + R1 * Math.sin(a)).toFixed(2) + '"/>';
+    }
+    popHeadLogo.setAttribute('viewBox', '0 0 44 44');
+    popHeadLogo.innerHTML = '<g id="logoRays" stroke="#f5f5f5" stroke-width="3.2" stroke-linecap="round">' + html + '</g>';
+  }
+  function renderBigModelLogo() {
+    if (!popHeadLogo) return;
+    popHeadLogo.setAttribute('viewBox', '0 0 16 16');
+    popHeadLogo.innerHTML = BM_LOGO_INNER;
+  }
+
   function renderPop(kind) {
     var body = document.getElementById('popContent');
     var titleEl = document.getElementById('popTitle');
-    if (!body || !titleEl) return;
-    popKind = kind;
-    titleEl.textContent = POP_TITLES[kind] || '用量详情';
+    var badgeEl = document.getElementById('popQBadge');
+    var rbtn = document.getElementById('popRefresh');
+    if (!body || !titleEl) return;    popKind = kind;
+    if (kind === '5h') {
+      renderBigModelLogo();
+      titleEl.textContent = 'GLM Coding Pro';
+      /* 618 内容宽装不下 44pu 长标题+徽标+全宽刷新钮:标题 40pu + 刷新收图标 */
+      titleEl.style.fontSize = 'calc(var(--pu, 0.5px) * 40)';
+      if (badgeEl) {
+        badgeEl.hidden = false;
+        badgeEl.style.flex = 'none';
+        badgeEl.innerHTML = BM_TREND_ICON + '<span>' + PLAN_QUOTA_LABEL + '</span>';
+      }
+      if (rbtn) {
+        rbtn.classList.add('icon-only');
+        if (!rbtn.disabled) rbtn.textContent = '↻';
+        rbtn.title = '立即刷新';
+      }
+    } else {
+      renderStarLogo();
+      titleEl.style.fontSize = '';
+      titleEl.textContent = POP_TITLES[kind] || '用量详情';
+      if (badgeEl) {
+        badgeEl.hidden = true;
+        badgeEl.innerHTML = '';
+      }
+      if (rbtn) {
+        rbtn.classList.remove('icon-only');
+        if (!rbtn.disabled) rbtn.textContent = '↻ 刷新';
+      }
+    }
     var d = butlerData || {}, a = d.account || {};
     body.innerHTML = kind === '5h' ? pop5hHtml(a)
       : kind === '7d' ? pop7dHtml(a)
       : kind === 'mcp' ? popMcpHtml(a)
       : popKeyHtml(d.keys || []);
+    fitPopHeight();
   }
 
-  /* 5h 弹框:额度池进度条 + 重置时间 + 高峰提醒(进度条)+ 当日总量/高峰/非高峰 + 模型一览 */
-  function pop5hHtml(a) {
-    var h = '', r = a.fiveHour;
-    h += '<div class="pop-row first"><span class="pop-label">5 小时额度池</span><span class="pop-pct">'
-      + (r ? Math.round(r.pct) + '%' : '—') + '</span></div>';
-    h += barHtml(r ? r.pct : 0, r ? ringColor(r.pct) : '#3a3a3a');
-    h += '<div class="pop-note">' + (r && r.resetAt > 0
-      ? fmtClock(r.resetAt) + ' 重置 · ' + fmtLeft(r.resetAt - Date.now()) : '重置时间未知') + '</div>';
-    var pk = peakState();
-    h += '<div class="pop-row pop-sec"><span class="pop-label">高峰期(工作日 14–18 时)</span><span class="pop-tag'
-      + (pk.inPeak ? ' hot' : '') + '">'
-      + (pk.inPeak ? '进行中 · ' + peakLeftText(pk.leftMin) : pk.nextLabel) + '</span></div>';
-    h += '<div class="pop-bar slim"><i style="width:' + pk.pct + '%;background:#e07442"></i></div>';
-    h += '<div class="pop-divider"></div>';
+  /* ── 气泡自适应高度:按内容实测(内边距+头部+内容+内边距)折算舞台px,
+     重描气泡 path(圆角 34/尖角半高 75 恒定,尖角恒垂直居中),夹在 [300,700] ── */
+  var popHStage = 700;
+  function setBubbleGeometry(h) {
+    var svg = document.querySelector('#usagePop .pop-bubble');
+    var path = svg && svg.querySelector('path');
+    if (!svg || !path) return;
+    var mid = h / 2;
+    svg.setAttribute('viewBox', '0 0 780 ' + h);
+    path.setAttribute('d',
+      'M34,0 H655.8 Q689.8,0 689.8,34 V' + (mid - 75) + ' L774,' + mid + ' L689.8,' + (mid + 75)
+      + ' V' + (h - 34) + ' Q689.8,' + h + ' 655.8,' + h
+      + ' H34 Q0,' + h + ' 0,' + (h - 34) + ' V34 Q0,0 34,0 Z');
+  }
+  function fitPopHeight() {
+    var pop = document.getElementById('usagePop');
+    var body = document.querySelector('.pop-body');
+    var content = document.getElementById('popContent');
+    if (!pop || !body || !content) return;
+    var cs = getComputedStyle(body);
+    var headEl = document.querySelector('.pop-head');
+    var s = window.innerHeight / 2025;
+    if (!isFinite(s) || s <= 0) s = 0.5;
+    var scale = s * (parseFloat(getComputedStyle(pop).getPropertyValue('--pop-scale')) || 1);
+    var needCss = parseFloat(cs.paddingTop)
+      + headEl.getBoundingClientRect().height
+      + content.scrollHeight + parseFloat(cs.paddingBottom);
+    popHStage = Math.max(300, Math.min(700, Math.ceil(needCss / scale) + 6));
+    pop.style.setProperty('--pop-h', String(popHStage));
+    setBubbleGeometry(popHStage);
+  }
+
+  /* ── 5h 弹框内容:ZCode「使用统计」两页风格(v0.6.3 定稿,默认 V1;?v=1..5 可预览备选)。
+     设计令牌逐值取自 zai-org/ZCode theme-zai-dark:额度卡(bigmodel 控制台排布)/
+     摘要条/图例/图表色板,速查表在桌面《ZCode页面提取》。
+     额度卡口径:数值=已使用 %、条形蓝色(≥80% 红)、重置时间当天只显 HH:mm ── */
+  var pop5hVariant = (location.search.match(/[?&]v=([1-5])/) || [])[1] || '1';  /* 默认 V1(定稿);?v=2..5 预览其余方案 */
+  function peakBannerRight(leftMin) {
+    if (leftMin < 1) return '即将结束';
+    if (leftMin >= 60) return '还剩 ' + Math.floor(leftMin / 60) + ' 小时 ' + (leftMin % 60) + ' 分';
+    return '还剩 ' + leftMin + ' 分';
+  }
+  function fmtZCReset(ts) {
+    var d = new Date(Number(ts) || 0), z = function (v) { return (v < 10 ? '0' : '') + v; };
+    return d.getFullYear() + '/' + z(d.getMonth() + 1) + '/' + z(d.getDate())
+      + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+  }
+  var ZC_COLORS = ['var(--zc-c1)', 'var(--zc-c2)', 'var(--zc-c3)', 'var(--zc-c4)', 'var(--zc-c5)', 'var(--zc-c6)'];
+  function zvData(a) {
+    var r = a.fiveHour;
+    var rem = r ? Math.max(0, Math.min(100, 100 - r.pct)) : null;
+    var zz = function (v) { return (v < 10 ? '0' : '') + v; };
+    var ts = butlerData && butlerData.fetchedAt ? new Date(butlerData.fetchedAt) : new Date();
+    var lv = String(a.level || '').toUpperCase() || '未知';
     var du = a.dayUsage;
-    h += '<div class="pop-row tight"><span class="pop-label">当日使用量</span><span class="pop-val">'
-      + (du ? fmtCnt(du.total.calls) + ' 次 · ' + fmtTok(du.total.tokens) + ' tokens' : '—') + '</span></div>';
-    h += '<div class="pop-row tight"><span class="pop-label sub">高峰期使用量</span><span class="pop-val sub">'
-      + (du ? fmtCnt(du.peak.calls) + ' 次 · ' + fmtTok(du.peak.tokens) : '—') + '</span></div>';
-    h += '<div class="pop-row tight"><span class="pop-label sub">非高峰期使用量</span><span class="pop-val sub">'
-      + (du ? fmtCnt(du.offPeak.calls) + ' 次 · ' + fmtTok(du.offPeak.tokens) : '—') + '</span></div>';
-    h += '<div class="pop-divider"></div>';
-    var ms = (a.modelsToday || []).slice(0, 6);
-    h += '<div class="pop-row tight"><span class="pop-label">当日模型用量一览</span><span class="pop-val sub">'
-      + modelsHeadValue(a.modelsToday) + '</span></div>';
-    h += modelRowsHtml(ms);
-    return h;
+    var models = (a.modelsToday || []).map(function (m, i) {
+      return { name: m.name, tokens: m.tokens, color: ZC_COLORS[i % ZC_COLORS.length] };
+    });
+    return {
+      lv: lv,
+      fh: r,
+      tierTxt: lv + ' 套餐',
+      whenTxt: '更新于 ' + zz(ts.getHours()) + ':' + zz(ts.getMinutes()) + ':' + zz(ts.getSeconds()),
+      rem: rem,
+      remPct: rem == null ? 0 : rem,
+      remTxt: rem == null ? '--' : (rem >= 10 ? String(Math.round(rem)) : rem.toFixed(1)) + '%',
+      resetTxt: r && r.resetAt > 0 ? fmtZCReset(r.resetAt) + ' 重置' : '重置时间未知',
+      chip: peakState().inPeak
+        ? '<span class="zv-chip zv-xs"><b></b>高峰期 ' + peakBannerRight(peakState().leftMin) + '</span>' : '',
+      du: du,
+      dayTok: du ? fmtTok(du.total.tokens) : '--',
+      dayCalls: du ? fmtCnt(du.total.calls) : '--',
+      peakTok: du ? fmtTok(du.peak.tokens) : '--',
+      offTok: du ? fmtTok(du.offPeak.tokens) : '--',
+      models: models,
+      modelsSum: models.reduce(function (t, m) { return t + m.tokens; }, 0),
+    };
+  }
+  function zvLegend(d, withPct) {
+    var h = '<div class="zv-leg zv-mt10">';
+    d.models.forEach(function (m) {
+      h += '<span class="it"><i class="zv-swatch" style="background:' + m.color + '"></i>'
+        + '<span class="zv-sm zv-sub">' + esc(m.name) + '</span>'
+        + '<span class="zv-sm mono">' + fmtTok(m.tokens)
+        + (withPct && d.modelsSum > 0 ? ' · ' + Math.round(m.tokens / d.modelsSum * 100) + '%' : '')
+        + '</span></span>';
+    });
+    return h + '</div>';
+  }
+  function zvStrip(d) {
+    return '<div class="zv-strip zv-mt12">'
+      + '<div class="zv-cell"><div class="v">' + d.dayTok + '</div><div class="k">当日 tokens</div></div>'
+      + '<div class="zv-div"></div>'
+      + '<div class="zv-cell"><div class="v">' + d.peakTok + '</div><div class="k">高峰期</div></div>'
+      + '<div class="zv-div"></div>'
+      + '<div class="zv-cell"><div class="v">' + d.offTok + '</div><div class="k">非高峰期</div></div>'
+      + '</div>';
+  }
+  function zvHead(d) {
+    return '<div class="zv-metaline">' + d.whenTxt + '</div>';
+  }
+  /* 重置时间(bigmodel 控制台口径):当天只显 HH:mm,跨天显 YYYY-MM-DD HH:mm */
+  function fmtBMReset(ts) {
+    var d = new Date(Number(ts) || 0), n = new Date();
+    var z = function (v) { return (v < 10 ? '0' : '') + v; };
+    var sameDay = d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+    return sameDay
+      ? z(d.getHours()) + ':' + z(d.getMinutes())
+      : d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate())
+        + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+  }
+  /* 额度卡(bigmodel 控制台同款排布,用户参考图):标签+ⓘ → N% 已使用 → 细条(默认蓝,≥80% 红)→ 重置时间 */
+  function quotaCardBM(label, r, chipHtml) {
+    var pct = r ? Math.max(0, Math.min(100, r.pct)) : null;
+    var col = (pct || 0) >= 80 ? 'var(--zc-c4)' : 'var(--zc-c1)';
+    return '<div class="zv-card">'
+      + '<div class="zv-row"><span class="zv-base zv-qlabel">' + label + BM_INFO_ICON + '</span>' + (chipHtml || '') + '</div>'
+      + '<div class="zv-vrow zv-mt10"><span class="zv-xl">' + (pct == null ? '--' : Math.round(pct))
+      + '%</span><span class="zv-sm zv-sub">已使用</span></div>'
+      + '<div class="zv-track zv-mt10"><i style="width:' + (pct || 0) + '%;background:' + col + '"></i></div>'
+      + '<div class="zv-sm zv-sub zv-mt10">重置时间：' + (r && r.resetAt > 0 ? fmtBMReset(r.resetAt) : '未知') + '</div>'
+      + '</div>';
+  }
+  function zvQuotaCard(d) {
+    return quotaCardBM('每5小时使用额度', d.fh, d.chip);
   }
 
-  /* 7d 弹框:每周额度进度条 + 本周每模型 token 总量 */
+  /* 当日模型占比段(V1/V5 共用):标题行 + 堆叠条(图表色按占比分段) */
+  function zvShare(d) {
+    var seg = '';
+    d.models.forEach(function (m) {
+      var w = d.modelsSum > 0 ? Math.max(2, Math.round(m.tokens / d.modelsSum * 100)) : 0;
+      seg += '<i style="width:' + w + '%;background:' + m.color + '"></i>';
+    });
+    return '<div class="zv-mt12"><div class="zv-row"><span class="zv-sm zv-sub">当日模型占比</span>'
+      + '<span class="zv-sm mono">' + fmtTok(d.modelsSum) + '</span></div>'
+      + '<div class="zv-stack zv-mt10">' + seg + '</div></div>';
+  }
+
+  var ZV_BUILDERS = {
+    /* V1 额度卡 + 摘要条 + 当日模型占比(用户定稿编排:摘要条插在额度卡与占比之间) */
+    1: function (d) {
+      return '<div class="zv">' + zvHead(d) + '<div class="zv-mt12">' + zvQuotaCard(d) + '</div>'
+        + zvStrip(d) + zvShare(d) + zvLegend(d, true) + '</div>';
+    },
+    /* V2 大数字 + 全宽轨道 + 摘要条(无卡开放排版,主色大字) */
+    2: function (d) {
+      return '<div class="zv">' + zvHead(d) + '<div class="zv-mt12">'
+        + '<div class="zv-row"><span class="zv-sm zv-sub">5 小时 Prompt 池</span>'
+        + '<span class="zv-sm zv-sub">' + d.resetTxt + '</span></div>'
+        + '<div class="zv-row zv-mt6"><span class="zv-xl" style="color:var(--zc-c1)">' + d.remTxt
+        + '</span><span class="zv-sm zv-sub">剩余</span>' + (d.chip ? '<span>' + d.chip + '</span>' : '') + '</div>'
+        + '<div class="zv-track zv-mt10"><i style="width:' + Math.max(0, d.remPct) + '%;background:var(--zc-c1)"></i></div>'
+        + zvStrip(d) + zvLegend(d) + '</div>';
+    },
+    /* V3 双卡:额度卡 + 当日活动卡(kv 行) */
+    3: function (d) {
+      return '<div class="zv">' + zvHead(d) + '<div class="zv-mt12">' + zvQuotaCard(d) + '</div>'
+        + '<div class="zv-card zv-mt12">'
+        + '<div class="zv-row"><span class="zv-base">当日</span>'
+        + '<span class="zv-lg mono">' + d.dayTok + '</span></div>'
+        + '<div class="zv-row zv-mt10"><span class="zv-sm zv-sub">高峰期(工作日 14–18 时)</span>'
+        + '<span class="zv-sm mono">' + d.peakTok + '</span></div>'
+        + '<div class="zv-row zv-mt6"><span class="zv-sm zv-sub">非高峰期</span>'
+        + '<span class="zv-sm mono">' + d.offTok + '</span></div>'
+        + '</div>'
+        + zvLegend(d) + '</div>';
+    },
+    /* V4 三列大数字(开放排版,仅一条分隔线) */
+    4: function (d) {
+      return '<div class="zv">' + zvHead(d) + '<div class="zv-mt12">'
+        + '<div class="zv-row"><span class="zv-base">5 小时 Prompt 池</span>'
+        + '<span class="zv-base">' + (d.chip ? d.chip : d.remTxt) + '</span></div>'
+        + '<div class="zv-track zv-mt10"><i style="width:' + Math.max(0, d.remPct) + '%;background:var(--zc-c1)"></i></div>'
+        + '<div class="zv-row zv-mt6"><span class="zv-xs zv-sub">' + d.resetTxt + ' · 剩余 ' + d.remTxt + '</span></div>'
+        + '<div style="height:1px;background:var(--zc-border);margin:' + 'calc(var(--pu,0.5px)*14)' + ' 0;"></div>'
+        + '<div style="display:flex;gap:calc(var(--pu,0.5px)*12)">'
+        + '<div style="flex:1;text-align:center"><div class="zv-lg">' + d.dayTok + '</div><div class="zv-sm zv-sub zv-mt6">当日</div></div>'
+        + '<div style="flex:1;text-align:center"><div class="zv-lg">' + d.peakTok + '</div><div class="zv-sm zv-sub zv-mt6">高峰期</div></div>'
+        + '<div style="flex:1;text-align:center"><div class="zv-lg">' + d.offTok + '</div><div class="zv-sm zv-sub zv-mt6">非高峰期</div></div>'
+        + '</div>'
+        + zvLegend(d) + '</div>';
+    },
+    /* V5 模型占比堆叠条 + 额度卡(最图表化) */
+    5: function (d) {
+      return '<div class="zv">' + zvHead(d) + '<div class="zv-mt12">' + zvQuotaCard(d) + '</div>'
+        + zvShare(d)
+        + zvLegend(d, true)
+        + '<div class="zv-row zv-mt12"><span class="zv-sm zv-sub">当日 ' + d.dayTok
+        + '</span><span class="zv-sm zv-sub">高峰 ' + d.peakTok + ' · 非高峰 ' + d.offTok + '</span></div>'
+        + '</div>';
+    },
+  };
+
+  function pop5hHtml(a) {
+    var d = zvData(a);
+    var build = ZV_BUILDERS[pop5hVariant] || ZV_BUILDERS[1];
+    return build(d);
+  }
+
+  /* 7d 弹框:每周额度卡(bigmodel 排布)+ 本周每模型 token 总量 */
   function pop7dHtml(a) {
-    var h = '', r = a.weekly;
-    h += '<div class="pop-row first"><span class="pop-label">每周额度</span><span class="pop-pct">'
-      + (r ? Math.round(r.pct) + '%' : '—') + '</span></div>';
-    h += barHtml(r ? r.pct : 0, r ? ringColor(r.pct) : '#3a3a3a');
-    h += '<div class="pop-note">' + (r && r.resetAt > 0
-      ? fmtClock(r.resetAt) + ' 重置 · ' + fmtLeft(r.resetAt - Date.now()) : '重置时间未知') + '</div>';
-    h += '<div class="pop-divider"></div>';
-    var ms = (a.modelsWeek || []).slice(0, 6);
+    var h = '<div class="zv">' + quotaCardBM('每周使用额度', a.weekly) + '<div class="zv-mt12">';
     h += '<div class="pop-row tight"><span class="pop-label">每个模型使用总量</span><span class="pop-val sub">'
       + modelsHeadValue(a.modelsWeek, a.weekUsage) + '</span></div>';
-    h += modelRowsHtml(ms);
+    h += modelRowsHtml((a.modelsWeek || []).slice(0, 6));
     h += '<div class="pop-note lead">模型统计窗口:近 7 天滚动 → 现在(额度周期另计)</div>';
-    return h;
+    return h + '</div></div>';
   }
 
-  /* mcp 弹框:月度总量进度条 + 联网搜索/网页读取/Zread 各自耗量(配色对应环弧色族) */
+  /* mcp 弹框:MCP 每月额度卡(bigmodel 排布)+ 联网搜索/网页读取/Zread 各自耗量(弧族配色) */
   function popMcpHtml(a) {
-    var h = '', r = a.mcpMonthly;
-    h += '<div class="pop-row first"><span class="pop-label">MCP 总使用量</span><span class="pop-pct">'
-      + (r ? Math.round(r.pct) + '%' : '—') + '</span></div>';
-    h += barHtml(r ? r.pct : 0, r ? ringColor(r.pct) : '#3a3a3a');
-    var bits = [];
-    if (r && r.limit > 0) {
-      bits.push('已用 ' + fmtCnt(r.used) + ' / ' + fmtCnt(r.limit) + ' 次 · 剩余 '
-        + fmtCnt(Math.max(0, r.limit - r.used)));
-    }
-    if (r && r.resetAt > 0) bits.push(fmtClock(r.resetAt) + ' 重置');
-    h += '<div class="pop-note">' + (bits.length ? bits.join(' · ') : '暂无数据') + '</div>';
-    h += '<div class="pop-divider"></div>';
-    var t = (r && r.tools) || {};
-    var lim = r && r.limit > 0 ? r.limit : 0;
+    var h = '<div class="zv">' + quotaCardBM('MCP 每月额度', a.mcpMonthly) + '<div class="zv-mt12">';
+    var t = (a.mcpMonthly && a.mcpMonthly.tools) || {};
+    var lim = a.mcpMonthly && a.mcpMonthly.limit > 0 ? a.mcpMonthly.limit : 0;
     h += toolRowHtml('联网搜索', t.webSearch, lim, 'var(--arc-openai)');
     h += toolRowHtml('网页读取', t.webReader, lim, 'var(--arc-perplexity)');
     h += toolRowHtml('Zread', t.zread, lim, 'var(--arc-claude)');
-    return h;
+    return h + '</div></div>';
   }
   function toolRowHtml(name, used, limit, color) {
     used = Number(used) || 0;
@@ -1151,7 +1511,11 @@
     var btn = document.getElementById('popRefresh');
     if (!btn) return;
     var RESET = '↻ 刷新';
-    function reset() { btn.disabled = false; btn.textContent = RESET; }
+    function reset() {
+      btn.disabled = false;
+      btn.classList.toggle('icon-only', popKind === '5h');
+      btn.textContent = popKind === '5h' ? '↻' : RESET;
+    }
     btn.addEventListener('click', function () {
       if (btn.disabled) return;
       if (!(window.chrome && window.chrome.webview)) { reset(); return; }
@@ -1176,11 +1540,11 @@
     /* 倍率唯一真相源 = CSS .usage-pop 的 --pop-scale;读不到回落 1
        (右缘锚点不变,弹框退回设计稿原尺寸,不会越出宿主窗口) */
     var POP_SCALE = parseFloat(getComputedStyle(pop).getPropertyValue('--pop-scale')) || 1;
-    var POP_W = 780 * POP_SCALE, POP_H = 700 * POP_SCALE;  /* 舞台px:含尖角的弹窗整体外框(v0.6.0 高 548→700) */
+    var POP_W = 780 * POP_SCALE;                          /* 舞台px:弹窗整体外框宽(含尖角) */
     var showT = 0, hideT = 0, active = null;
     function place(meter) {
       var s = window.innerHeight / 2025, r = meter.getBoundingClientRect();
-      var w = POP_W * s, h = POP_H * s;
+      var w = POP_W * s, h = popHStage * POP_SCALE * s;   /* 高随内容自适应(fitPopHeight 实测) */
       var x = window.innerWidth - TIP_TO_RIGHT * s - w;
       var y = r.top + r.height / 2 - h / 2;
       var yMax = window.innerHeight - h - 6;
@@ -1305,6 +1669,7 @@
     if (location.search.match(/[?&]demo=1/)) {
       var now = Date.now();
       butlerApply({
+        fetchedAt: new Date(now).toISOString(),
         account: {
           fiveHour: { pct: 73, used: 0, limit: 0, resetAt: now + 2.6 * 3600000, status: 'ok' },
           weekly: { pct: 66, used: 0, limit: 0, resetAt: now + 5.5 * 86400000, status: 'ok' },
