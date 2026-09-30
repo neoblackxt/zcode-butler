@@ -1,6 +1,14 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
-# 码管家桌面悬浮窗 v0.6.2(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# 码管家桌面悬浮窗 v0.6.8(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# v0.6.8(HTML 侧,宿主零改动):深色主题轮廓——纯黑表面(面板/镜泡/弹框气泡/
+#   通知卡)在 ZCode 深色主题(#161616 背景)下无轮廓;取 zai-org/ZCode
+#   packages/ui/src/styles.css .theme-zai-dark 的表面描边约定 --color-border =
+#   rgba(255,255,255,0.1)(白 10% hairline):深底可见、浅底白线贴黑边自隐形,
+#   单值两主题自适应无需主题探测。三 SVG 表面 stroke-width 3.4 舞台px(≈1 CSS px,
+#   窗高恒 600 CSS 同 toast 边框口径;vector-effect:non-scaling-stroke 的 CSS
+#   形态实测不生效,1px 按用户单位被舞台缩放吞成亚像素,弃用)。顺修 toast 描边
+#   双错:引用未定义 --track(实为 --ring-track)致零描边 + 1.5 舞台px 本就亚像素。
 # v0.6.2:弹窗临时刷新按钮(zcode-watch ↻ 同款语义)+ Key 取消高峰×3:
 #   ①页面弹窗头加「↻ 刷新」按钮,postMessage {type:'refresh'} → 宿主 Invoke-Refresh
 #     立即重跑 status.mjs(110 分钟周期外的手动通道,治数据陈旧);

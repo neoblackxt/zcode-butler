@@ -8,6 +8,10 @@
   /* ─── tokens(取自参考图逐点取样)────────────────────────────── */
   :root {
     --panel:        #030303;   /* 面板 / 气泡黑 */
+    --edge:        rgba(255, 255, 255, 0.10);   /* 深色主题轮廓:v0.6.8,= ZCode
+                     zai-dark 的 --color-border 同值(见 zai-org/ZCode
+                     packages/ui/src/styles.css .theme-zai-dark)——深底呈
+                     hairline 轮廓,浅底白线贴黑边自隐形,单值两主题自适应 */
     --ring-track:   #2e2e2e;   /* 圆环轨道 */
     --arc-claude:   #ce6a47;   /* Claude 橙 */
     --arc-openai:   #7fdca9;   /* OpenAI 绿 */
@@ -83,6 +87,34 @@
   }
 
   .panel-svg { position: absolute; inset: 0; display: block; }
+
+  /* ─── v0.6.8 深色主题轮廓:纯黑表面在 ZCode 深色主题(背景 #161616)下无轮廓。
+     方案 = ZCode 自家深色 UI 的表面描边约定(zai-dark --color-border =
+     rgba(255,255,255,0.1),其 popover/card/input 浮层全用它):白 10% hairline
+     在深底可见、浅底自隐形,无需主题探测。三个 SVG 表面统一描边。
+     stroke-width 用舞台px(3.4 ≈ 1 CSS px @窗高恒600CSS,与 toast 边框同口径):
+     vector-effect:non-scaling-stroke 经实测(阳性对照法)CSS 形态不生效,
+     1px 会按用户单位被舞台缩放吞成亚像素——弃用 */
+  #panelPath,
+  .fab .disc > circle:first-child,
+  .pop-bubble path {
+    stroke: var(--edge);
+    stroke-width: 3.4px;
+  }
+  /* ?edge= 方案预览变体(选型用,默认 hair=上规则;详见 ?edge= 处 JS 注释):
+     glow = 白色柔光边缘替代描边(弹框卡仍留 hair——卡片类 ZCode 亦用描边);
+     lift = 表面色阶方案:面板/镜泡底色抬至 zai-dark --color-panel #202020
+     (弹框/通知卡为字面色 #0a0a0a,预览变体不覆盖——全量皮肤属方案 B 工作量) */
+  body[data-edge="none"] #panelPath,
+  body[data-edge="none"] .fab .disc > circle:first-child,
+  body[data-edge="none"] .pop-bubble path,
+  body[data-edge="glow"] #panelPath,
+  body[data-edge="glow"] .fab .disc > circle:first-child { stroke: none; }
+  body[data-edge="glow"] .panel-svg,
+  body[data-edge="glow"] .fab svg {
+    filter: drop-shadow(0 0 3.4px rgba(255, 255, 255, 0.32));
+  }
+  body[data-edge="lift"] { --panel: #202020; }
 
   /* ─── 圆环计量组 ─────────────────────────────────────────────── */
   .meter {
@@ -305,7 +337,9 @@
     width: 312px;
     z-index: 5;
     background: #0a0a0a;
-    border: 1.5px solid var(--track);
+    border: 3.4px solid var(--edge);   /* v0.6.8:原 1.5px var(--track) 双错——
+      --track 未定义(仅 --ring-track)致声明无效零描边,且 1.5 舞台px ≈0.44 CSS px
+      本就不可见;改 zai-dark 约定描边,3.4 舞台px ≈ 1 CSS px(窗高恒 600 CSS) */
     border-radius: 24px;
     padding: 24px 26px 22px;
     box-shadow: 0 26px 60px rgba(3, 3, 3, 0.35);
@@ -1625,6 +1659,13 @@
   (function () {
     var m = location.search.match(/[?&]key=(\d+(?:\.\d+)?)/);
     if (m) butlerSetRing('key', parseFloat(m[1]), true);
+  })();
+  /* ?edge= 深色主题轮廓方案预览(v0.6.8,选型用,同弹框 ?v=1..5 惯例;宿主无查询串恒为默认):
+     none=无描边(旧貌对照)/ hair=白10%描边(默认,zai-dark --color-border 同值)/
+     glow=白色柔光边缘(过滤器方案)/ lift=抬亮面板底色至 zai-dark --color-panel #202020(表面色阶方案) */
+  (function () {
+    var m = location.search.match(/[?&]edge=(none|hair|glow|lift)/);
+    if (m) document.body.dataset.edge = m[1];
   })();
   /* 首帧数据来源(v0.2.2):?demo=1 → 四环 + 四弹框全量示例(调 UI 用);否则 localStorage 快照
      (上次宿主推送的真值)→ 冷启动首帧即真实值,消灭「设计稿 73% 闪一下才变正常」;
