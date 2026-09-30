@@ -802,9 +802,7 @@
     <div class="pop-body">
       <header class="pop-head" data-od-id="popup-head">
         <span class="pop-logo" data-od-id="popup-logo">
-          <svg viewBox="0 0 44 44" aria-hidden="true">
-            <g id="logoRays" stroke="#f5f5f5" stroke-width="3.2" stroke-linecap="round"></g>
-          </svg>
+          <svg viewBox="0 0 16 16" aria-hidden="true"></svg>
         </span>
         <h2 class="pop-title" id="popTitle" data-od-id="popup-title">用量详情</h2>
         <span class="pop-qbadge" id="popQBadge" data-od-id="popup-quota-badge" hidden></span>
@@ -1155,7 +1153,8 @@
      [BigModel 菱形标(SVG 逐路径抄 logo-bigmodel.svg)] GLM Coding Pro [↗ 150%配额胶囊]。
      「150%配额」= 用户 ZCode 界面显示的套餐倍率,出自订阅接口(本插件未接)——
      按用户原话字面常量;若要真数据需接订阅 API,或套餐变化时手改此常量。
-     其他环弹框还原星芒 logo 与原标题,互不影响 ── */
+     v0.6.6:四弹框头部 logo 统一 BigModel 菱形标(用户指定,7d/mcp/key 不再用星芒),
+     标题文字仍各自保留以区分弹框 ── */
   var PLAN_QUOTA_LABEL = '150%配额';
   var BM_INFO_ICON = '<svg class="zv-info" viewBox="0 0 16 16" fill="none" aria-hidden="true">'
     + '<circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.3"/>'
@@ -1180,17 +1179,6 @@
     + '<clipPath id="bmClip"><rect width="16" height="16" fill="white"/></clipPath>'
     + '</defs>';
   var popHeadLogo = document.querySelector('.pop-logo svg');
-  function renderStarLogo() {   /* 其余 kind:还原十二芒星(与启动 IIFE 同参数重建) */
-    if (!popHeadLogo) return;
-    var NS = 'http://www.w3.org/2000/svg', C = 22, R0 = 3.5, R1 = 16, html = '';
-    for (var i = 0; i < 12; i++) {
-      var a = i * Math.PI / 6;
-      html += '<line x1="' + (C + R0 * Math.cos(a)).toFixed(2) + '" y1="' + (C + R0 * Math.sin(a)).toFixed(2)
-        + '" x2="' + (C + R1 * Math.cos(a)).toFixed(2) + '" y2="' + (C + R1 * Math.sin(a)).toFixed(2) + '"/>';
-    }
-    popHeadLogo.setAttribute('viewBox', '0 0 44 44');
-    popHeadLogo.innerHTML = '<g id="logoRays" stroke="#f5f5f5" stroke-width="3.2" stroke-linecap="round">' + html + '</g>';
-  }
   function renderBigModelLogo() {
     if (!popHeadLogo) return;
     popHeadLogo.setAttribute('viewBox', '0 0 16 16');
@@ -1219,7 +1207,7 @@
         rbtn.title = '立即刷新';
       }
     } else {
-      renderStarLogo();
+      renderBigModelLogo();   /* v0.6.6:非 5h 弹框头部同样用 BigModel 标 */
       titleEl.style.fontSize = '';
       titleEl.textContent = POP_TITLES[kind] || '用量详情';
       if (badgeEl) {
@@ -1601,21 +1589,9 @@
     }
   })();
 
-  /* ── 弹窗头部十二芒星标(与参考图 Claude 星芒一致)──────────────── */
-  (function () {
-    var g = document.getElementById('logoRays');
-    if (!g) return;
-    var NS = 'http://www.w3.org/2000/svg', C = 22, R0 = 3.5, R1 = 16;
-    for (var i = 0; i < 12; i++) {
-      var a = i * Math.PI / 6;
-      var l = document.createElementNS(NS, 'line');
-      l.setAttribute('x1', (C + R0 * Math.cos(a)).toFixed(2));
-      l.setAttribute('y1', (C + R0 * Math.sin(a)).toFixed(2));
-      l.setAttribute('x2', (C + R1 * Math.cos(a)).toFixed(2));
-      l.setAttribute('y2', (C + R1 * Math.sin(a)).toFixed(2));
-      g.appendChild(l);
-    }
-  })();
+  /* ── 弹窗头部 logo 初始绘制:v0.6.6 起四弹框统一 BigModel 菱形标
+     (打开任一弹框时 renderPop 亦按 kind 重绘同一内容,此处只管静态骨架首帧) ── */
+  renderBigModelLogo();
 
   /* ── 数据桥:宿主(WebView2 壳)PostWebMessageAsJson → 四环 + Key + 弹框内容 ──
       协议 = status.mjs --json:account.fiveHour/weekly/mcpMonthly.pct + 弹框明细三字段
