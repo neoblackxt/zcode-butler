@@ -12,10 +12,11 @@
     --arc-claude:   #ce6a47;   /* Claude 橙 */
     --arc-openai:   #7fdca9;   /* OpenAI 绿 */
     --arc-perplexity: #eef67e; /* Perplexity 黄 */
-    /* 四环水位色(v0.4.7 全环生效):已用 ≤60% 绿 / 60–80% 黄 / >80% 红
-       (绿黄沿用色族值,红新增;无数据回灰 --label) */
+    /* 四环水位色(v0.6.3 用户定档):<30 绿 / 30–60 黄 / 60–90 橙 / ≥90 红
+       (绿黄红沿用面板色系值,橙取 zc-c5 同值;无数据回灰 --label) */
     --ring-ok:   #7fdca9;
     --ring-warn: #eef67e;
+    --ring-mid:  #ff8a30;
     --ring-low:  #ee5c5c;
     --badge:      #e25c4a;   /* 提醒徽标红(活动提醒提案 C/D 同源) */
     --ink:        #030303;   /* 亮底之上的墨色文字(通知卡主按钮) */
@@ -1090,7 +1091,8 @@
     return '还剩 ' + parts.join(' ');
   }
   function ringColor(p) {
-    return p <= 60 ? 'var(--ring-ok)' : p <= 80 ? 'var(--ring-warn)' : 'var(--ring-low)';
+    return p < 30 ? 'var(--ring-ok)' : p < 60 ? 'var(--ring-warn)'
+      : p < 90 ? 'var(--ring-mid)' : 'var(--ring-low)';
   }
   function barHtml(pct, color, slim) {
     var p = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
@@ -1348,20 +1350,19 @@
       : d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate())
         + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
   }
-  /* 额度卡(bigmodel 控制台同款排布,用户参考图):标签+ⓘ → N% 已使用 → 细条(默认蓝,≥80% 红)→ 重置时间 */
-  function quotaCardBM(label, r, chipHtml) {
+  /* 额度卡(bigmodel 控制台同款排布,用户参考图):标签+ⓘ → N% 已使用 → 细条(固定色,barColor 传入)→ 重置时间 */
+  function quotaCardBM(label, r, barColor, chipHtml) {
     var pct = r ? Math.max(0, Math.min(100, r.pct)) : null;
-    var col = (pct || 0) >= 80 ? 'var(--zc-c4)' : 'var(--zc-c1)';
     return '<div class="zv-card">'
       + '<div class="zv-row"><span class="zv-base zv-qlabel">' + label + BM_INFO_ICON + '</span>' + (chipHtml || '') + '</div>'
       + '<div class="zv-vrow zv-mt10"><span class="zv-xl">' + (pct == null ? '--' : Math.round(pct))
       + '%</span><span class="zv-sm zv-sub">已使用</span></div>'
-      + '<div class="zv-track zv-mt10"><i style="width:' + (pct || 0) + '%;background:' + col + '"></i></div>'
+      + '<div class="zv-track zv-mt10"><i style="width:' + (pct || 0) + '%;background:' + barColor + '"></i></div>'
       + '<div class="zv-sm zv-sub zv-mt10">重置时间：' + (r && r.resetAt > 0 ? fmtBMReset(r.resetAt) : '未知') + '</div>'
       + '</div>';
   }
   function zvQuotaCard(d) {
-    return quotaCardBM('每5小时使用额度', d.fh, d.chip);
+    return quotaCardBM('每5小时使用额度', d.fh, 'var(--zc-c2)', d.chip);   /* 5h 条恒绿(zc-c2) */
   }
 
   /* 当日模型占比段(V1/V5 共用):标题行 + 堆叠条(图表色按占比分段) */
@@ -1439,7 +1440,7 @@
 
   /* 7d 弹框:每周额度卡(bigmodel 排布)+ 本周每模型 token 总量 */
   function pop7dHtml(a) {
-    var h = '<div class="zv">' + quotaCardBM('每周使用额度', a.weekly) + '<div class="zv-mt12">';
+    var h = '<div class="zv">' + quotaCardBM('每周使用额度', a.weekly, 'var(--zc-c2)') + '<div class="zv-mt12">';   /* 7d 条恒绿 */
     h += '<div class="pop-row tight"><span class="pop-label">每个模型使用总量</span><span class="pop-val sub">'
       + modelsHeadValue(a.modelsWeek, a.weekUsage) + '</span></div>';
     h += modelRowsHtml((a.modelsWeek || []).slice(0, 6));
@@ -1449,7 +1450,7 @@
 
   /* mcp 弹框:MCP 每月额度卡(bigmodel 排布)+ 联网搜索/网页读取/Zread 各自耗量(弧族配色) */
   function popMcpHtml(a) {
-    var h = '<div class="zv">' + quotaCardBM('MCP 每月额度', a.mcpMonthly) + '<div class="zv-mt12">';
+    var h = '<div class="zv">' + quotaCardBM('MCP 每月额度', a.mcpMonthly, 'var(--zc-c3)') + '<div class="zv-mt12">';   /* mcp 条恒紫(zc-c3) */
     var t = (a.mcpMonthly && a.mcpMonthly.tools) || {};
     var lim = a.mcpMonthly && a.mcpMonthly.limit > 0 ? a.mcpMonthly.limit : 0;
     h += toolRowHtml('联网搜索', t.webSearch, lim, 'var(--arc-openai)');
@@ -1633,9 +1634,9 @@
       return;
     }
     var p = Math.max(0, Math.min(100, Number(pct) || 0));
-    /* 四环水位色统一看已用额度:≤60% 绿 / 60–80% 黄 / >80% 红 */
-    arc.setAttribute('stroke', p <= 60 ? 'var(--ring-ok)' :
-      p <= 80 ? 'var(--ring-warn)' : 'var(--ring-low)');
+    /* 四环水位色统一看已用额度(v0.6.3 用户定档):<30 绿 / 30–60 黄 / 60–90 橙 / ≥90 红 */
+    arc.setAttribute('stroke', p < 30 ? 'var(--ring-ok)' :
+      p < 60 ? 'var(--ring-warn)' : p < 90 ? 'var(--ring-mid)' : 'var(--ring-low)');
     arc.setAttribute('stroke-dasharray',
       (RING_C * p / 100).toFixed(1) + ' ' + (RING_C * (1 - p / 100)).toFixed(1));
     pctEl.textContent = Math.round(p) + '%';
