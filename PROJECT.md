@@ -194,7 +194,7 @@ flowchart LR
   },
   "keys": [                              // R2:按 pct 降序;悬浮窗渐进环按序取前 N 个
     { "id": "k1", "name": "主力", "tier": "PRO", "tail": "A1B2",
-      "pct": 42, "usedWeighted": 7.3e8, "quota": 17.5e8,
+      "pct": 42, "used": 7.3e8, "quota": 17.5e8,          // v0.2.14:used=原始 token(取消高峰×3,曾名 usedWeighted)
       "peak": 6.1e8, "offpeak": 2.6e8, "resetDate": "2026-09-30", "status": "ok" }
   ],
   "news": { "unread": 3, "latest": [ { "id": "n1", "title": "...", "date": "09-10", "source": "智谱开放平台", "level": "info" } ] },
@@ -215,13 +215,14 @@ v0.2.12/13 新增弹框明细字段为可选消费(校验器缺省容忍旧载�
 - `GET {origin}/api/monitor/usage/quota/limit` — 三环额度(unit=3 五小时池 / unit=6 每周 / TIME_LIMIT=MCP月度)
 - 当日模型用量/工具调用接口照搬;高峰拆分用小时序列求和(工作日 14:00-17:59 左闭右开),不单独发峰窗区间请求
 - v0.2.13 周窗口模型明细:对同一 `model-usage` 接口发 `[now − 7 天, now]` **滚动窗口**请求(7d 弹框「每个模型使用总量」;v0.2.12 曾误用 `weekly.nextResetTime − 7 天`——那是**额度周期起点**(订阅周锚点,非滚动),仅覆盖 09-29 之后 3.08 亿;用户真值 7.5 亿 = 滚动窗口,2026-09-30 探针三窗对照定标)。周合计必须用响应的 `totalUsage`(weekUsage):周窗口下 `modelSummaryList` 各项求和与其有 ~9% 出入(8.20 亿 vs 7.50 亿;日窗口两口径精确一致,服务端行为)
+- v0.2.14 每模型明细逐小时桶精算:`modelDataList × x_time` 只计标签 ≥ 窗口起点的桶——多日窗口下 `modelSummaryList` 按整天算会多计窗口前零头(GLM-5.3 周窗口 5.49 亿 vs 桶算 4.83 亿,2026-09-30 实测);桶算合计与 `totalUsage` 严格相等(差 0),无序列时回退 summaryList
 - 认证:`Authorization` 头,401 自动补 `Bearer`;超时 hook 5s / 常规 10s
 - 凭证优先级:参数 → `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_BASE_URL`(或 `ZAI_API_KEY`)→ 手动配置文件 → `~/.zcode/v2/config.json` 全 provider 扫描(编程套餐>通用>自定义);跳过 `zcode.z.ai`
 
 ### 6.2 Key 月度(沿用 zcode-watch v0.4.0 链路)
 
 - `GET https://bigmodel.cn/api/finance/expenseBill/expenseBillList` — 分钟级账单,同账号多 Key 一次拉取各自拆分
-- 加权口径:总使用 = 非高峰×1 + 高峰×3;自然月,每月 1 号重置
+- 用量口径:原始 token 总量(= 高峰 + 非高峰);自然月,每月 1 号重置。**v0.2.14 用户拍板取消高峰×3 加权**(源项目 zcode-watch 保留加权口径,此处有意分叉,漂移控制例外)
 - 增量同步:水位线+缺口窗口(保底 2h)、小时桶幂等合并、40 页断点续拉;账号 customerId 去重 + keyMap 学习
 - 配置文件格式兼容 zcode-watch(`~/.zcode/zcode-watch.json` 可直接导入 butler.json)
 
