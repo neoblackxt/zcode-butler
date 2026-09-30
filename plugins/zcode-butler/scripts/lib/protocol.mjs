@@ -75,14 +75,16 @@ export function newsStateOf(items, readIds) {
 }
 
 /** 空载荷骨架(全部模块未跑时的起点)
- *  v0.2.12 起 account 增弹框明细三字段:dayUsage(当日总/高峰/非高峰拆分)、
- *  modelsToday / modelsWeek(当日/本周每模型 token);模块降级时 null / [] */
+ *  v0.2.12 起 account 增弹框明细:dayUsage(当日总/高峰/非高峰拆分)、
+ *  modelsToday / modelsWeek(当日/近 7 天每模型 token);
+ *  v0.2.13 增 weekUsage(近 7 天滚动合计真值 {calls,tokens},合计显示以此为准);
+ *  模块降级时 null / [] */
 export function emptyProtocol(nowMs = Date.now()) {
   return {
     protocolVersion: PROTOCOL_VERSION,
     fetchedAt: new Date(nowMs).toISOString(),
     account: { fiveHour: null, weekly: null, mcpMonthly: null, peakNow: false,
-      dayUsage: null, modelsToday: [], modelsWeek: [] },
+      dayUsage: null, modelsToday: [], modelsWeek: [], weekUsage: null },
     keys: [],
     news: { unread: 0, items: [] },
     errors: [],
@@ -146,6 +148,13 @@ export function validateProtocol(p) {
           errs.push(`account.${list}[${i}] 应含 name/tokens 字段`);
         }
       });
+    }
+    const wu = p.account.weekUsage;
+    if (wu !== undefined && wu !== null) {
+      if (!isObj(wu)) errs.push('account.weekUsage 应为对象或 null');
+      else for (const f of ['calls', 'tokens']) {
+        if (typeof wu[f] !== 'number') errs.push(`account.weekUsage.${f} 应为数字`);
+      }
     }
   }
 

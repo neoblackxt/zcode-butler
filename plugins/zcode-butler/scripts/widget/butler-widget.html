@@ -953,12 +953,15 @@
         + '</span><span class="m-tok">' + fmtTok(m.tokens) + '</span></div>';
     }).join('') + '</div>';
   }
-  /* 模型清单头行右侧文案:合计 + 超出封顶(6)的省略计数 */
-  function modelsHeadValue(all) {
+  /* 模型清单头行右侧文案:优先合计真值(weekUsage=totalUsage 口径,列表之和在周窗口下
+     有 ~9% 出入,不作合计),日窗口无真值时回落列表求和;附超出封顶(6)的省略计数 */
+  function modelsHeadValue(all, total) {
     var list = all || [];
-    if (!list.length) return '暂无数据';
+    if (!list.length && !total) return '暂无数据';
     var extra = list.length - Math.min(list.length, 6);
-    return '合计 ' + fmtTok(modelSum(list)) + (extra > 0 ? ' · 另 ' + extra + ' 个' : '');
+    var head = total ? (total.tokens || total.calls ? '合计 ' + fmtTok(total.tokens) : '暂无数据')
+      : '合计 ' + fmtTok(modelSum(list));
+    return head + (extra > 0 ? ' · 另 ' + extra + ' 个' : '');
   }
 
   /* 高峰期状态:工作日 14:00–18:00(北京时间纯 UTC 运算);进行中给进度与剩余,否则给下个开始点 */
@@ -1044,9 +1047,9 @@
     h += '<div class="pop-divider"></div>';
     var ms = (a.modelsWeek || []).slice(0, 6);
     h += '<div class="pop-row tight"><span class="pop-label">每个模型使用总量</span><span class="pop-val sub">'
-      + modelsHeadValue(a.modelsWeek) + '</span></div>';
+      + modelsHeadValue(a.modelsWeek, a.weekUsage) + '</span></div>';
     h += modelRowsHtml(ms);
-    h += '<div class="pop-note lead">窗口:本周重置点 − 7 天 → 现在</div>';
+    h += '<div class="pop-note lead">模型统计窗口:近 7 天滚动 → 现在(额度周期另计)</div>';
     return h;
   }
 
@@ -1254,7 +1257,7 @@
       butlerApply({
         account: {
           fiveHour: { pct: 73, used: 0, limit: 0, resetAt: now + 2.6 * 3600000, status: 'ok' },
-          weekly: { pct: 21, used: 0, limit: 0, resetAt: now + 5.5 * 86400000, status: 'ok' },
+          weekly: { pct: 66, used: 0, limit: 0, resetAt: now + 5.5 * 86400000, status: 'ok' },
           mcpMonthly: { pct: 52, used: 520, limit: 1000, resetAt: now + 26 * 86400000, status: 'ok',
             tools: { webSearch: 412, webReader: 36, zread: 72 } },
           peakNow: true,
@@ -1270,10 +1273,11 @@
             { name: 'GLM-5.3-Flash', tokens: 133992 },
           ],
           modelsWeek: [
-            { name: 'GLM-5.3', tokens: 284443965 },
-            { name: 'GLM-5.3-FlashX', tokens: 13467857 },
-            { name: 'GLM-5.3-Flash', tokens: 1121028 },
+            { name: 'GLM-5.3', tokens: 542852632 },
+            { name: 'GLM-5.3-FlashX', tokens: 253745005 },
+            { name: 'GLM-5.3-Flash', tokens: 23035795 },
           ],
+          weekUsage: { calls: 3263, tokens: 750122453 },
         },
         keys: [
           { name: 'key-1', tail: '····jb58', tier: 'PRO', provider: 'bigmodel', pct: 76,

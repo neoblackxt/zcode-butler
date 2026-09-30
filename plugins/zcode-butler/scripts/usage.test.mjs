@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   bjFmt, bjDayStartMs, bjHourLabel, weekdayOfDateStr, isPeakHourLabel, peakOf,
-  mapQuotaToAccount, mapToolUsageToday, splitDayUsage, modelsOf, weeklyResetAtOf,
+  mapQuotaToAccount, mapToolUsageToday, splitDayUsage, modelsOf, weeklyResetAtOf, weekUsageOf,
   countdown, accountSummaryLine,
 } from './usage.mjs';
 
@@ -128,11 +128,19 @@ test('weeklyResetAtOf:unit 6 的 TOKENS_LIMIT → nextResetTime;缺失/畸形 0'
   assert.equal(weeklyResetAtOf(null), 0);
 });
 
-test('mapQuotaToAccount:v0.2.12 弹框明细三字段默认空(由 fetchAccountData 填充)', () => {
+test('weekUsageOf:周窗口响应 → {calls,tokens} 合计真值;缺失 null', () => {
+  const mu = { totalUsage: { totalModelCallCount: 3263, totalTokensUsage: 750122453 } };
+  assert.deepEqual(weekUsageOf(mu), { calls: 3263, tokens: 750122453 });
+  assert.equal(weekUsageOf({ totalUsage: null }), null);
+  assert.equal(weekUsageOf(null), null);
+});
+
+test('mapQuotaToAccount:v0.2.12 弹框明细字段默认空(由 fetchAccountData 填充)', () => {
   const a = mapQuotaToAccount(REAL_QUOTA, 0);
   assert.equal(a.dayUsage, null);
   assert.deepEqual(a.modelsToday, []);
   assert.deepEqual(a.modelsWeek, []);
+  assert.equal(a.weekUsage, null);
 });
 
 test('countdown:天/小时/分钟组合;非正数返回空', () => {

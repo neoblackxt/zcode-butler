@@ -9,7 +9,7 @@
  *
  * 与 zcode-usage 的差异:输出对齐 butler 协议(PROJECT.md §5)的 account 段;
  * 高峰拆分沿用小时序列求和(工作日 14:00-17:59 左闭右开),不单独发峰窗区间请求;
- * v0.2.12 增周窗口模型明细查询(model-usage,周窗口 = 每周重置点 − 7 天 → 现在)。
+ * v0.2.12 增周窗口模型明细查询(model-usage,近 7 天滚动窗口,v0.2.13 定标)。
  *
  * CLI:node usage.mjs [--json] [--key K --base U]
  */
@@ -98,10 +98,12 @@ export function mapQuotaToAccount(quota, nowMs) {
     weekly: null,
     mcpMonthly: null,
     peakNow: isPeakHourLabel(bjHourLabel(nowMs)),
-    // v0.2.12 弹框明细(由 fetchAccountData 依当日/周窗口响应填充)
+    // v0.2.12 弹框明细(由 fetchAccountData 依当日/周窗口响应填充;
+    // v0.2.13 周窗口定标为近 7 天滚动,合计真值走 weekUsage)
     dayUsage: null,
     modelsToday: [],
     modelsWeek: [],
+    weekUsage: null,
   };
   for (const l of quota?.limits || []) {
     const pct = Number(l.percentage) || 0;
@@ -161,8 +163,8 @@ export function modelsOf(modelUsage) {
     .sort((a, b) => b.tokens - a.tokens);
 }
 
-/** quota → 每周环重置点(epoch ms;无每周环返回 0)。周窗口起点 = 重置点 − 7 天
- *  (2026-09-30 实测:按此起点请求 model-usage,返回桶首与请求起点精确对齐) */
+/** quota → 每周环重置点(epoch ms;无每周环返回 0)。额度周期起点 = 重置点 − 7 天,
+ *  但**与用户用量口径无关**——「每周用量」按近 7 天滚动统计(v0.6.1 定标,见 weekUsageOf) */
 export function weeklyResetAtOf(quota) {
   for (const l of quota?.limits || []) {
     if (l.type !== 'TIME_LIMIT' && Number(l.unit) === 6) return Number(l.nextResetTime) || 0;
@@ -170,10 +172,23 @@ export function weeklyResetAtOf(quota) {
   return 0;
 }
 
+/** 周窗口(近 7 天滚动)model-usage 响应 → { calls, tokens } 合计真值;响应缺失返回 null。
+ *  注意合计必须用 totalUsage:周窗口下 modelSummaryList 各项之和与其有 ~9% 出入
+ *  (日窗口两口径精确一致;2026-09-30 实测 8.20 亿 vs 7.50 亿),以 totalUsage 为准 */
+export function weekUsageOf(modelUsage) {
+  const t = modelUsage?.totalUsage;
+  if (!t) return null;
+  return {
+    calls: Number(t.totalModelCallCount) || 0,
+    tokens: Number(t.totalTokensUsage) || 0,
+  };
+}
+
 // ---------- 取数 ----------
 /**
  * 账号查询:四个接口,额度失败整体抛错;当日/周窗口查询失败不影响额度(降级为 null/[])。
- * 周窗口 = 每周环重置点 − 7 天 → 现在(7d 弹框「每模型 token」数据源,实测对齐)。
+ * 周窗口 = 近 7 天滚动([now − 7 天, now],v0.6.1 定标:与用户真值 7.5 亿精确对齐;
+ * 早前 v0.6.0 误用「额度重置点 − 7 天」= 周期起点,只覆盖 1.5 天)。
  * 返回 { account, raw: { quota, modelUsage, toolUsage, weekUsage, dayUsage, toolsToday, ... } }。
  */
 export async function fetchAccountData({ timeoutMs = 10000, getFlag } = {}) {
@@ -191,14 +206,11 @@ export async function fetchAccountData({ timeoutMs = 10000, getFlag } = {}) {
   const nowMs = Date.now();
   const qs = (startMs, endMs) => `?startTime=${encodeURIComponent(bjFmt(startMs))}&endTime=${encodeURIComponent(bjFmt(endMs))}`;
   const dayStart = bjDayStartMs(nowMs);
-  const weeklyResetAt = weeklyResetAtOf(quota);
-  const weekStart = weeklyResetAt > 0 ? weeklyResetAt - 7 * 24 * 3600_000 : 0;
+  const weekStart = nowMs - 7 * 24 * 3600_000;   // 近 7 天滚动
   const [modelUsage, toolUsage, weekUsage] = await Promise.all([
     get('/api/monitor/usage/model-usage' + qs(dayStart, nowMs)).catch(() => null),
     get('/api/monitor/usage/tool-usage' + qs(dayStart, nowMs)).catch(() => null),
-    weekStart > 0 && weekStart < nowMs
-      ? get('/api/monitor/usage/model-usage' + qs(weekStart, nowMs)).catch(() => null)
-      : Promise.resolve(null),
+    get('/api/monitor/usage/model-usage' + qs(weekStart, nowMs)).catch(() => null),
   ]);
 
   const account = mapQuotaToAccount(quota, nowMs);
@@ -206,6 +218,7 @@ export async function fetchAccountData({ timeoutMs = 10000, getFlag } = {}) {
   account.dayUsage = dayUsage;
   account.modelsToday = modelsOf(modelUsage);
   account.modelsWeek = modelsOf(weekUsage);
+  account.weekUsage = weekUsageOf(weekUsage);
   return {
     account,
     raw: {
@@ -332,7 +345,7 @@ async function main() {
       console.log(JSON.stringify({
         fetchedAt: new Date(nowMs).toISOString(),
         account: { fiveHour: null, weekly: null, mcpMonthly: null, peakNow: false,
-          dayUsage: null, modelsToday: [], modelsWeek: [], level: '?' },
+          dayUsage: null, modelsToday: [], modelsWeek: [], weekUsage: null, level: '?' },
         errors: [{ module: 'usage', message: e.message }],
       }, null, 2));
     } else {

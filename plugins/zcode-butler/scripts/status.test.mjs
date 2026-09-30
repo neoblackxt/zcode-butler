@@ -35,7 +35,7 @@ test('collect:usage 失败 → errors 记账,keys/news 不受影响(降级红线
     },
   });
   assert.deepEqual(payload.account, { fiveHour: null, weekly: null, mcpMonthly: null, peakNow: false,
-    dayUsage: null, modelsToday: [], modelsWeek: [] });
+    dayUsage: null, modelsToday: [], modelsWeek: [], weekUsage: null });
   assert.equal(payload.errors.length, 1);
   assert.equal(payload.errors[0].module, 'usage');
   assert.match(payload.errors[0].message, /网络错误/);
