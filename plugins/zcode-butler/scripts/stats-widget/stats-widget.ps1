@@ -397,7 +397,10 @@ public static class StatsHost {
         return IntPtr.Zero;
       case WM_SIZE:
         if (_controller != null) {
-          try { _controller.Bounds = new Rectangle(0, 0, (short)((int)lp & 0xFFFF), (short)(((int)lp >> 16) & 0xFFFF)); } catch { }
+          // v0.6.14 同构防御:(IntPtr)→int 显式转换在值 >int.MaxValue 时抛 OverflowException
+          // (butler-widget WER 实证 2026-09-30);一律 ToInt64 解包,与 widget 同口径
+          long lsz = lp.ToInt64();
+          try { _controller.Bounds = new Rectangle(0, 0, (short)(lsz & 0xFFFF), (short)((lsz >> 16) & 0xFFFF)); } catch { }
         }
         return IntPtr.Zero;
       case WM_ERASEBKGND: return (IntPtr)1;

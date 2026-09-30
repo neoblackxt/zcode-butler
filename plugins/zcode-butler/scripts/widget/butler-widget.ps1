@@ -1,6 +1,17 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
 # 码管家桌面悬浮窗 v0.6.13(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# v0.6.14(宿主侧):跨屏拖动崩溃 + ZCode 拖动卡顿双修(WER 实证 2026-09-30
+#   22:56 OverflowException @ ButlerHost.WndProcImpl,dpr 1.5⇄1.75 跨屏时发):
+#   ①崩溃——窗口在负屏幕坐标区(副屏位于主屏左/上)时 WM_NCHITTEST 的 lParam
+#     高位字为负,Win64 寄存器零扩展后整值 >int.MaxValue,(int)lp 显式转换抛
+#     OverflowException 崩宿主;WndProcImpl/ForwardMouse 四处 lParam 解包一律改
+#     lp.ToInt64()(永不抛)+(short) 截断。stats-widget WM_SIZE 同口径防御。
+#   ②卡顿——OnWinEvent2 补 hwnd!=_zHwnd2 过滤(stats v0.12.3 同款,两宿主此处
+#     曾漂移):Chromium 子窗口/光标/滚动条各自触发 LOCATIONCHANGE,不滤则拖动
+#     时每秒数百条 FOLLOW2,每条 2×GetWindowRect+SetWindowPos+NotifyParent…
+#     ZCode 拖动被拖卡;过滤后只剩主窗移动事件,回到 v0.4.5 验证过的帧级量级。
+#     plugin 0.2.26。
 # v0.6.13(HTML 侧,宿主零改动):①按钮粒子随形态动态(用户报"弧线态包裹是
 #   圆形应随形态")——星星引擎多路径化(paths[]+pick(),粒子按 f 比例分布换路径
 #   无缝,活跃数随路径长缩放):收起态合成全圆 r84×26,展开态沿 #arcPath 真弧
@@ -441,6 +452,10 @@ public static class ButlerHost {
   private static void OnWinEvent2(IntPtr hHook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time) {
     try {
       if (_zHwnd2 == IntPtr.Zero || _hwnd == IntPtr.Zero) return;
+      // v0.6.14:只认 ZCode 主窗自身——Chromium 子窗口/光标/滚动条每次移动各发一条
+      // LOCATIONCHANGE,不滤则拖动时每秒数百条 FOLLOW2 风暴,每条都 2×GetWindowRect+
+      // SetWindowPos+NotifyParentPositionChanged,ZCode 拖动被拖卡(stats v0.12.3 同款过滤)
+      if (hwnd != _zHwnd2) return;
       // Geometry + visibility are recomputed in WndProc (ApplyFollowGeom) from live
       // rects; the callback stays post-only (WinEvent reentrancy contract).
       if (evt == 0x800B) PostMessageB(_hwnd, WM_APP_FOLLOW2, IntPtr.Zero, IntPtr.Zero);
@@ -555,7 +570,9 @@ public static class ButlerHost {
       var tme = new TRACKMOUSEEVENT { cbSize = Marshal.SizeOf(typeof(TRACKMOUSEEVENT)), dwFlags = 2 /*TME_LEAVE*/, hwndTrack = _hwnd };
       TrackMouseEvent(ref tme); _trackingMouse = true;
     }
-    var pt = new Point((short)((int)lp & 0xFFFF), (short)(((int)lp >> 16) & 0xFFFF));
+    // v0.6.14:lParam 经 ToInt64 解包——(int)IntPtr 在值 >int.MaxValue 时抛 OverflowException
+    long lmv = lp.ToInt64();
+    var pt = new Point((short)(lmv & 0xFFFF), (short)((lmv >> 16) & 0xFFFF));
     if (msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL) {   // 滚轮 lParam 是屏幕坐标
       var sp = new POINT { X = pt.X, Y = pt.Y }; ScreenToClient(_hwnd, ref sp); pt = new Point(sp.X, sp.Y);
     }
@@ -573,7 +590,11 @@ public static class ButlerHost {
   private static IntPtr WndProcImpl(IntPtr h, uint msg, IntPtr wp, IntPtr lp) {
     switch (msg) {
       case WM_NCHITTEST: {
-        int sx = (short)((int)lp & 0xFFFF), sy = (short)(((int)lp >> 16) & 0xFFFF);
+        // v0.6.14 崩溃根因:窗口在负屏幕坐标区(副屏位于主屏左/上)时,NCHITTEST 的
+        // lParam 高位字为负,Win64 零扩展后整值 >int.MaxValue,(int)lp 显式转换抛
+        // OverflowException(WER 实证 2026-09-30 22:56)——一律 ToInt64 解包
+        long lpv = lp.ToInt64();
+        int sx = (short)(lpv & 0xFFFF), sy = (short)((lpv >> 16) & 0xFFFF);
         bool mhit = MaskHit(sx, sy);
         // v0.4.10:光标移到本窗"窗内透明区"(HTTRANSPARENT,鼠标路由给下层 ZCode)时,
         // 窗口收不到任何鼠标消息,TME_LEAVE 的 WM_MOUSELEAVE 对此路径不可靠(实测:
@@ -596,7 +617,7 @@ public static class ButlerHost {
         if (_controller != null) { try { _controller.SendMouseInput((CoreWebView2MouseEventKind)675, 0, 0, new Point(0, 0)); } catch { } }
         return IntPtr.Zero;
       case WM_SETCURSOR:
-        if (_controller != null && _controller.Cursor != IntPtr.Zero && ((int)lp & 0xFFFF) == HTCLIENT) {
+        if (_controller != null && _controller.Cursor != IntPtr.Zero && ((int)(lp.ToInt64() & 0xFFFF)) == HTCLIENT) {
           SetCursor(_controller.Cursor); return (IntPtr)1;
         }
         break;
@@ -609,7 +630,8 @@ public static class ButlerHost {
         return IntPtr.Zero;
       case WM_SIZE:
         if (_controller != null) {
-          try { _controller.Bounds = new Rectangle(0, 0, (short)((int)lp & 0xFFFF), (short)(((int)lp >> 16) & 0xFFFF)); } catch { }
+          long lsz = lp.ToInt64();
+          try { _controller.Bounds = new Rectangle(0, 0, (short)(lsz & 0xFFFF), (short)((lsz >> 16) & 0xFFFF)); } catch { }
         }
         return IntPtr.Zero;
       case WM_ERASEBKGND: return (IntPtr)1;
