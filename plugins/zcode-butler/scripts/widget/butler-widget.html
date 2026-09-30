@@ -1362,7 +1362,7 @@
       + '</div>';
   }
   function zvQuotaCard(d) {
-    return quotaCardBM('每5小时使用额度', d.fh, 'var(--zc-c2)', d.chip);   /* 5h 条恒绿(zc-c2) */
+    return quotaCardBM('每5小时使用额度', d.fh, 'var(--zc-c1)', d.chip);   /* 5h 条恒蓝(zc-c1 #4099ff) */
   }
 
   /* 当日模型占比段(V1/V5 共用):标题行 + 堆叠条(图表色按占比分段) */
@@ -1440,7 +1440,7 @@
 
   /* 7d 弹框:每周额度卡(bigmodel 排布)+ 本周每模型 token 总量 */
   function pop7dHtml(a) {
-    var h = '<div class="zv">' + quotaCardBM('每周使用额度', a.weekly, 'var(--zc-c2)') + '<div class="zv-mt12">';   /* 7d 条恒绿 */
+    var h = '<div class="zv">' + quotaCardBM('每周使用额度', a.weekly, 'var(--zc-c2)') + '<div class="zv-mt12">';   /* 7d 条恒绿(zc-c2) */
     h += '<div class="pop-row tight"><span class="pop-label">每个模型使用总量</span><span class="pop-val sub">'
       + modelsHeadValue(a.modelsWeek, a.weekUsage) + '</span></div>';
     h += modelRowsHtml((a.modelsWeek || []).slice(0, 6));
