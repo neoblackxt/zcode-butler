@@ -281,6 +281,8 @@ public static class StatsHost {
       _controller.NotifyParentWindowPositionChanged();
       _controller.DefaultBackgroundColor = Color.Transparent;
       var core = _controller.CoreWebView2;
+      // v0.13g:关 WebView2 默认右键菜单——本窗整窗 HTTRANSPARENT 收不到任何鼠标,纯防御性对齐 butler 侧
+      core.Settings.AreDefaultContextMenusEnabled = false;
       core.WebMessageReceived += (s, e) => {
         try {
           var msg = e.TryGetWebMessageAsString();

@@ -289,6 +289,9 @@ public static class ButlerHost {
       _controller.DefaultBackgroundColor = Color.Transparent;   // 逐像素真透明
       _controller.CursorChanged += delegate { };                // 光标经 WM_SETCURSOR 轮询 Cursor 属性
       var core = _controller.CoreWebView2;
+      // v0.5.2:关 WebView2 默认右键菜单(后退/前进/重新加载/另存为/打印/检查 6 项)——非设计功能
+      //   漏出:「打印」即 09-30 打印预览卡死 ZCode 页面事件入口(开发日志十一轮),「检查」泄露 DevTools
+      core.Settings.AreDefaultContextMenusEnabled = false;
       core.WebMessageReceived += (s, e) => {
         try {
           var msg = e.TryGetWebMessageAsString();
