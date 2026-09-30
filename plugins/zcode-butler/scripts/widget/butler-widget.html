@@ -538,33 +538,6 @@
     border-radius: calc(var(--pu, 0.5px) * 4.5);
     margin: calc(var(--pu, 0.5px) * 8) 0 calc(var(--pu, 0.5px) * 2);
   }
-  .pop-models {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    column-gap: calc(var(--pu, 0.5px) * 18);
-    row-gap: calc(var(--pu, 0.5px) * 4);
-    margin-top: calc(var(--pu, 0.5px) * 4);
-  }
-  .pop-models .pop-mrow {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    min-width: 0;
-  }
-  .pop-models .m-name {
-    font-size: calc(var(--pu, 0.5px) * 23);
-    font-weight: 500;
-    color: #e6e6e6;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .pop-models .m-tok {
-    font-size: calc(var(--pu, 0.5px) * 23);
-    color: #9f9f9f;
-    font-variant-numeric: tabular-nums;
-    flex: none;
-  }
   .pop-key { margin-top: calc(var(--pu, 0.5px) * 13); }
   .pop-key .k-meta {
     font-size: calc(var(--pu, 0.5px) * 23);
@@ -1097,27 +1070,6 @@
     return '<div class="pop-bar' + (slim ? ' slim' : '') + '"><i style="width:' + p
       + '%;background:' + color + '"></i></div>';
   }
-  function modelSum(models) {
-    var s = 0;
-    (models || []).forEach(function (m) { s += Number(m.tokens) || 0; });
-    return s;
-  }
-  function modelRowsHtml(models) {
-    return '<div class="pop-models">' + (models || []).map(function (m) {
-      return '<div class="pop-mrow"><span class="m-name">' + esc(m.name)
-        + '</span><span class="m-tok">' + fmtTok(m.tokens) + '</span></div>';
-    }).join('') + '</div>';
-  }
-  /* 模型清单头行右侧文案:优先合计真值(weekUsage=totalUsage 口径,列表之和在周窗口下
-     有 ~9% 出入,不作合计),日窗口无真值时回落列表求和;附超出封顶(6)的省略计数 */
-  function modelsHeadValue(all, total) {
-    var list = all || [];
-    if (!list.length && !total) return '暂无数据';
-    var extra = list.length - Math.min(list.length, 6);
-    var head = total ? (total.tokens || total.calls ? '合计 ' + fmtTok(total.tokens) : '暂无数据')
-      : '合计 ' + fmtTok(modelSum(list));
-    return head + (extra > 0 ? ' · 另 ' + extra + ' 个' : '');
-  }
 
   /* 高峰期状态:工作日 14:00–18:00(北京时间纯 UTC 运算);进行中给进度与剩余,否则给下个开始点 */
   var BJ_OFFSET_MS = 8 * 3600000;
@@ -1275,11 +1227,15 @@
       + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
   }
   var ZC_COLORS = ['var(--zc-c1)', 'var(--zc-c2)', 'var(--zc-c3)', 'var(--zc-c4)', 'var(--zc-c5)', 'var(--zc-c6)'];
+  /* 头部「更新于 HH:mm:ss」:取数时间同源(5h/7d 共用,v0.6.7 抽出) */
+  function whenTxtOf() {
+    var zz = function (v) { return (v < 10 ? '0' : '') + v; };
+    var ts = butlerData && butlerData.fetchedAt ? new Date(butlerData.fetchedAt) : new Date();
+    return '更新于 ' + zz(ts.getHours()) + ':' + zz(ts.getMinutes()) + ':' + zz(ts.getSeconds());
+  }
   function zvData(a) {
     var r = a.fiveHour;
     var rem = r ? Math.max(0, Math.min(100, 100 - r.pct)) : null;
-    var zz = function (v) { return (v < 10 ? '0' : '') + v; };
-    var ts = butlerData && butlerData.fetchedAt ? new Date(butlerData.fetchedAt) : new Date();
     var lv = String(a.level || '').toUpperCase() || '未知';
     var du = a.dayUsage;
     var models = (a.modelsToday || []).map(function (m, i) {
@@ -1289,7 +1245,7 @@
       lv: lv,
       fh: r,
       tierTxt: lv + ' 套餐',
-      whenTxt: '更新于 ' + zz(ts.getHours()) + ':' + zz(ts.getMinutes()) + ':' + zz(ts.getSeconds()),
+      whenTxt: whenTxtOf(),
       rem: rem,
       remPct: rem == null ? 0 : rem,
       remTxt: rem == null ? '--' : (rem >= 10 ? String(Math.round(rem)) : rem.toFixed(1)) + '%',
@@ -1316,14 +1272,19 @@
     });
     return h + '</div>';
   }
-  function zvStrip(d) {
-    return '<div class="zv-strip zv-mt12">'
-      + '<div class="zv-cell"><div class="v">' + d.dayTok + '</div><div class="k">当日 tokens</div></div>'
-      + '<div class="zv-div"></div>'
-      + '<div class="zv-cell"><div class="v">' + d.peakTok + '</div><div class="k">高峰期</div></div>'
-      + '<div class="zv-div"></div>'
-      + '<div class="zv-cell"><div class="v">' + d.offTok + '</div><div class="k">非高峰期</div></div>'
-      + '</div>';
+  /* 摘要三格条:cells 可选(5h 默认当日/高峰/非高峰;7d 传周口径三格,v0.6.7 参数化) */
+  function zvStrip(d, cells) {
+    cells = cells || [
+      { v: d.dayTok, k: '当日 tokens' },
+      { v: d.peakTok, k: '高峰期' },
+      { v: d.offTok, k: '非高峰期' },
+    ];
+    var h = '<div class="zv-strip zv-mt12">';
+    cells.forEach(function (c, i) {
+      if (i) h += '<div class="zv-div"></div>';
+      h += '<div class="zv-cell"><div class="v">' + c.v + '</div><div class="k">' + c.k + '</div></div>';
+    });
+    return h + '</div>';
   }
   function zvHead(d) {
     return '<div class="zv-metaline">' + d.whenTxt + '</div>';
@@ -1353,15 +1314,16 @@
     return quotaCardBM('每5小时使用额度', d.fh, 'var(--zc-c1)', d.chip);   /* 5h 条恒蓝(zc-c1 #4099ff) */
   }
 
-  /* 当日模型占比段(V1/V5 共用):标题行 + 堆叠条(图表色按占比分段) */
-  function zvShare(d) {
+  /* 模型占比段(V1/V5 共用):标题行 + 堆叠条(图表色按占比分段);
+     title/rightTok 可选——5h 默认「当日/列表和」,7d 传「近7天」与 weekUsage 真值(v0.6.7 参数化) */
+  function zvShare(d, title, rightTok) {
     var seg = '';
     d.models.forEach(function (m) {
       var w = d.modelsSum > 0 ? Math.max(2, Math.round(m.tokens / d.modelsSum * 100)) : 0;
       seg += '<i style="width:' + w + '%;background:' + m.color + '"></i>';
     });
-    return '<div class="zv-mt12"><div class="zv-row"><span class="zv-sm zv-sub">当日模型占比</span>'
-      + '<span class="zv-sm mono">' + fmtTok(d.modelsSum) + '</span></div>'
+    return '<div class="zv-mt12"><div class="zv-row"><span class="zv-sm zv-sub">' + (title || '当日模型占比') + '</span>'
+      + '<span class="zv-sm mono">' + fmtTok(rightTok != null ? rightTok : d.modelsSum) + '</span></div>'
       + '<div class="zv-stack zv-mt10">' + seg + '</div></div>';
   }
 
@@ -1426,14 +1388,39 @@
     return build(d);
   }
 
-  /* 7d 弹框:每周额度卡(bigmodel 排布)+ 本周每模型 token 总量 */
+  /* 7d 数据(v0.6.7):摘要三格 = 近7天 tokens / 日均 / 调用次数(weekUsage 合计真值);
+     占比段 = modelsWeek 全量,右侧合计亦写真值(周窗口列表之和与 totalUsage 有 ~9% 出入,
+     合计以 totalUsage 为准——十四轮周窗口定标);图例 N% 仍按列表和为分母(分布占比) */
+  function zvWeekData(a) {
+    var wu = a.weekUsage;
+    var models = (a.modelsWeek || []).map(function (m, i) {
+      return { name: m.name, tokens: m.tokens, color: ZC_COLORS[i % ZC_COLORS.length] };
+    });
+    return {
+      whenTxt: whenTxtOf(),
+      weekTok: wu ? fmtTok(wu.tokens) : '--',
+      avgTok: wu && wu.tokens > 0 ? fmtTok(wu.tokens / 7) : '--',
+      callsTxt: wu ? fmtCnt(wu.calls) : '--',
+      weekTokens: wu ? wu.tokens : null,
+      models: models,
+      modelsSum: models.reduce(function (t, m) { return t + m.tokens; }, 0),
+    };
+  }
+  /* 7d 弹框(v0.6.7 起 = 5h V1 同款排版,用户拍板):更新于 + 每周额度卡(条恒绿)+
+     摘要三格(周口径)+ 近 7 天模型占比堆叠/图例 + 窗口口径小字 */
   function pop7dHtml(a) {
-    var h = '<div class="zv">' + quotaCardBM('每周使用额度', a.weekly, 'var(--zc-c2)') + '<div class="zv-mt12">';   /* 7d 条恒绿(zc-c2) */
-    h += '<div class="pop-row tight"><span class="pop-label">每个模型使用总量</span><span class="pop-val sub">'
-      + modelsHeadValue(a.modelsWeek, a.weekUsage) + '</span></div>';
-    h += modelRowsHtml((a.modelsWeek || []).slice(0, 6));
-    h += '<div class="pop-note lead">模型统计窗口:近 7 天滚动 → 现在(额度周期另计)</div>';
-    return h + '</div></div>';
+    var d = zvWeekData(a);
+    return '<div class="zv">' + zvHead(d) + '<div class="zv-mt12">'
+      + quotaCardBM('每周使用额度', a.weekly, 'var(--zc-c2)') + '</div>'   /* 7d 条恒绿(zc-c2) */
+      + zvStrip(d, [
+        { v: d.weekTok, k: '近7天 tokens' },
+        { v: d.avgTok, k: '日均' },
+        { v: d.callsTxt, k: '调用次数' },
+      ])
+      + zvShare(d, '近7天模型占比', d.weekTokens)
+      + zvLegend(d, true)
+      + '<div class="zv-sm zv-sub zv-mt10">模型统计窗口:近 7 天滚动 → 现在(额度周期另计)</div>'
+      + '</div>';
   }
 
   /* mcp 弹框:MCP 每月额度卡(bigmodel 排布)+ 联网搜索/网页读取/Zread 各自耗量(弧族配色) */
