@@ -315,6 +315,24 @@ while ($true) {
               if ($r.Y -gt ($best.Y - 320) -and $r.Y -lt ($best.Y - 24) -and $r.X -gt ($best.X - 40) -and ($r.X + $r.Width) -lt ($best.X + $best.Width + 40) -and $r.Y -lt $chipTop) { $chipTop = $r.Y }
             } catch { }
           }
+          # v0.6.13 排队条检测(用户截图:胶囊盖住排队条右缘动作钮)——编辑器上方
+          # 紧带 [top-160, top-6] 内、右列(右缘在 composer 右缘-320 内)的 Button =
+          # 排队动作钮(实况 UIA 实测:立即/编辑/移除待发送消息,y=1778,条顶 1771);
+          # 其顶并入 chipTop(与附件 chips 同管道)→ 胶囊抬到条上方。
+          # 名单制+右列双保险防误抓聊天区按钮;ZCode 改名则静默退回(同「切换模式」先例)
+          $qbtns = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)
+          foreach ($qb in $qbtns) {
+            try {
+              $nm = $qb.Current.Name
+              if ($nm -ne '立即' -and $nm -ne '编辑' -and $nm -ne '移除待发送消息') { continue }
+              $qr = $qb.Current.BoundingRectangle
+              if ($qr.Height -le 0) { continue }
+              if ($qr.Y -gt ($best.Y - 160) -and $qr.Y -lt ($best.Y - 6) -and
+                  ($qr.X + $qr.Width) -gt ($best.X + $best.Width - 320) -and $qr.X -lt ($best.X + $best.Width + 40)) {
+                if ($qr.Y -lt $chipTop) { $chipTop = $qr.Y }
+              }
+            } catch { }
+          }
           if ($chipTop -lt 1e8) { $script:chipTop = $chipTop } else { $script:chipTop = $null }
         } catch { }
       }

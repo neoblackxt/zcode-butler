@@ -1715,11 +1715,13 @@
   function edgeStarsStart() {
     if (edgeStarHosts.length) return;
     var NS = 'http://www.w3.org/2000/svg';
-    function makeHost(cfg) {   /* cfg: {path, root, cx, cy, count, rate(ms)} */
-      var L = cfg.path.getTotalLength(), ps = [], j;
-      function seed(t0) {
+    function makeHost(cfg) {   /* cfg: {paths:[..], pick:fn->idx, root, cx, cy, count, rate(ms), lref}
+        v0.6.13 多路径:每帧按 pick() 选当前路径(粒子按 f=0..1 比例分布,换路径无缝),
+        活跃粒子数随路径长缩放(activeN = count × L/lref,短弧自动减密度) */
+      var ps = [], j;
+      function seed(f0) {
         return {
-          t: t0, v: (3 + Math.random() * 8) * (Math.random() < 0.5 ? -1 : 1),
+          f: f0, v: (3 + Math.random() * 8) * (Math.random() < 0.5 ? -1 : 1),
           amp: 2 + Math.random() * 5, ph: Math.random() * 6.28,
           fq: 0.5 + Math.random() * 1.2, r: 0.9 + Math.random() * 1.5,
           tw: 0.35 + Math.random() * 0.55
@@ -1729,17 +1731,21 @@
         var c = document.createElementNS(NS, 'circle');
         c.setAttribute('fill', '#ffffff');
         cfg.root.appendChild(c);
-        ps.push({ el: c, s: seed(L * j / cfg.count) });
+        ps.push({ el: c, s: seed(j / cfg.count) });
       }
-      return { path: cfg.path, root: cfg.root, cx: cfg.cx, cy: cfg.cy, L: L,
-               ps: ps, spk: null, spkAt: 0, rate: cfg.rate };
+      return { paths: cfg.paths, pick: cfg.pick, root: cfg.root, cx: cfg.cx, cy: cfg.cy,
+               lref: cfg.lref, ps: ps, spk: null, spkAt: 0, rate: cfg.rate };
     }
     function frameOf(h, now, dt) {
+      var pth = h.paths[h.pick()];
+      var L = pth.getTotalLength();
+      var active = Math.max(6, Math.min(h.ps.length, Math.round(h.ps.length * L / h.lref)));
       for (var k = 0; k < h.ps.length; k++) {
         var p = h.ps[k], s = p.s;
-        s.t += s.v * dt;
-        if (s.t < 0) s.t += h.L; else if (s.t > h.L) s.t -= h.L;
-        var pt = h.path.getPointAtLength(s.t);
+        if (k >= active) { p.el.setAttribute('opacity', 0); continue; }
+        s.f += (s.v / L) * dt;
+        if (s.f < 0) s.f += 1; else if (s.f > 1) s.f -= 1;
+        var pt = pth.getPointAtLength(s.f * L);
         var dx = pt.x - h.cx, dy = pt.y - h.cy, dl = Math.hypot(dx, dy) || 1;
         var off = 4 + s.amp * Math.sin(now / 1000 * s.fq * 6.283 + s.ph);
         var op = s.tw * (0.55 + 0.45 * Math.sin(now / 1000 * 2.2 + s.ph * 3));
@@ -1752,7 +1758,7 @@
         h.spkAt = now;
         var c2 = document.createElementNS(NS, 'circle');
         c2.setAttribute('fill', '#ffffff'); h.root.appendChild(c2);
-        var q = h.path.getPointAtLength(Math.random() * h.L);
+        var q = pth.getPointAtLength(Math.random() * L);
         var sx = q.x - h.cx, sy = q.y - h.cy, sl = Math.hypot(sx, sy) || 1;
         h.spk = { el: c2, x: q.x, y: q.y, ux: sx / sl, uy: sy / sl, life: 1, r: 1.4 + Math.random() };
       }
@@ -1775,12 +1781,14 @@
       svg.setAttribute('width', '430'); svg.setAttribute('height', '2025');
       svg.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:3;';
       wrap.insertBefore(svg, wrap.querySelector('.meter'));
-      edgeStarHosts.push(makeHost({ path: panel, root: svg, cx: 365, cy: 920, count: 90, rate: 500 }));
+      edgeStarHosts.push(makeHost({ paths: [panel], pick: function () { return 0; }, root: svg,
+        cx: 365, cy: 920, count: 90, rate: 500, lref: panel.getTotalLength() }));
     }
     if (fabSvg) {
-      /* 弧线按钮星环(v0.6.10 修"变设置按钮后粒子不全"):原沿 #arcPath 只有 ~104°
-         扫角,齿轮盘绽开(整圆 r76.5)后环缺一大截;改挂合成全圆路径 r84——在盘缘
-         76.5 与弧外沿 80.85 之外,弧线态/齿轮态皆为完整星环 */
+      /* 弧线按钮星环(v0.6.13 随形态动态,用户报"弧线态粒子包裹是圆形应随形态"):
+         收起态(眼睛/齿轮盘)= 合成全圆 r84(盘缘 76.5 与弧外沿 80.85 之外);
+         展开态(弧线形态)= 直接沿 #arcPath 真实弧线(粒子贴弧,密度随弧长缩放)。
+         密度基准 lref = 全圆周长 2π×84,弧态自动减量 */
       var g = document.createElementNS(NS, 'g');
       g.style.cssText = 'pointer-events:none;';
       fabSvg.appendChild(g);
@@ -1789,7 +1797,13 @@
       cp.setAttribute('d', 'M' + (96.5 - CR) + ',97 a' + CR + ',' + CR + ' 0 1,0 ' + (2 * CR) + ',0 a' + CR + ',' + CR + ' 0 1,0 ' + (-2 * CR) + ',0');
       cp.setAttribute('fill', 'none');
       g.appendChild(cp);
-      edgeStarHosts.push(makeHost({ path: cp, root: g, cx: 96.5, cy: 97, count: 26, rate: 1000 }));
+      var stageEl = document.getElementById('stage');
+      var arcEl = document.getElementById('arcPath');
+      edgeStarHosts.push(makeHost({
+        paths: [cp, arcEl],
+        pick: function () { return stageEl.className.indexOf('minimized') >= 0 ? 0 : 1; },
+        root: g, cx: 96.5, cy: 97, count: 26, rate: 1000, lref: 2 * Math.PI * CR
+      }));
     }
     if (!edgeStarHosts.length) return;
     var last = performance.now();
@@ -1813,12 +1827,13 @@
     var NS = 'http://www.w3.org/2000/svg';
     var CX = 96.5, CY = 97, PR = 20.6;          /* 眼心 / 瞳半径(=原环 r30.9×0.667 视重) */
     var MAXOFF = 76.5 - PR - 5;                 /* 瞳心活动限界(留 5 边距,贴边即瞪视) */
-    /* 层:瞳基片(圆)+ 瞳变形 path(星/螺旋/泪滴等,与圆互斥淡切)+ 上眼皮遮罩 */
+    /* 层:瞳基片(白圆环——用户勘误:不要实心白圆点)+ 瞳变形 path(星/螺旋/心/怒,
+       描边轮廓风与圆环一致)+ 上眼皮遮罩 */
     var fxLayer = el('g', {});
     host.insertBefore(fxLayer, host.firstChild);
     var pupil = el('g', { transform: 'translate(' + CX + ' ' + CY + ')' });
-    var pDot = el('circle', { r: PR, fill: 'var(--icon)' });
-    var pFx = el('path', { fill: 'var(--icon)', opacity: 0 });
+    var pDot = el('circle', { r: 14, fill: 'none', stroke: 'var(--icon)', 'stroke-width': 8 });
+    var pFx = el('path', { fill: 'none', stroke: 'var(--icon)', 'stroke-width': 6.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: 0 });
     pupil.appendChild(pDot); pupil.appendChild(pFx);
     host.appendChild(pupil);
     var lid = el('path', { d: lidD(0), fill: 'var(--panel)', opacity: 0 });
