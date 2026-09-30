@@ -224,6 +224,21 @@ using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 
 public static class ButlerHost {
+  // v0.6.16 主题自采(stats 探针退役后的替代信号):桌面 DC GetPixel,物理屏幕坐标
+  // 不受 DPI 虚拟化影响。返回 -1 失败;否则 0..255 亮度(0.3R+0.59G+0.11B,COLORREF BGR)
+  [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr h);
+  [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr h, IntPtr dc);
+  [DllImport("gdi32.dll")] private static extern uint GetPixel(IntPtr dc, int x, int y);
+  public static int PixelLum(int x, int y) {
+    IntPtr dc = GetDC(IntPtr.Zero);
+    if (dc == IntPtr.Zero) return -1;
+    try {
+      uint c = GetPixel(dc, x, y);
+      if (c == 0xFFFFFFFF) return -1;
+      int r = (int)(c & 0xFF), g = (int)((c >> 8) & 0xFF), b = (int)((c >> 16) & 0xFF);
+      return (r * 3 + g * 6 + b) / 10;
+    } finally { ReleaseDC(IntPtr.Zero, dc); }
+  }
   private static IntPtr _hwnd;
   private static WndProcDelegate _proc;
   private static IDCompositionDevice _device;
@@ -940,23 +955,56 @@ function Stop-Widget([string]$reason) {
 # 生死绑定(v0.4.0,用户拍板):ZCode 关闭 → 悬浮窗随退,不再退屏独立存活;
 # 窗口句柄丢失先重吸附;脚本被删(插件卸载)自退出
 
-# v0.6.15 星空主题门控:粒子仅 ZCode 深色主题时出现(用户拍板)。主题信号借 stats
-# 探针 anchor 文件的 theme 字段(输入框 4 点亮度实况采样,120ms 更新——系统跟随主题
-# 也天然正确);>5s 陈旧不推(stats 死亡/自愈换代窗口页面保持当前态)。仅边沿推送
-# +pageReady 时刻补推初值(首条早于 ready 会被页面错过)
+# v0.6.16 星空主题门控:粒子仅 ZCode 深色主题时出现(用户拍板)。主题信号改宿主自采
+# (v0.6.15 借 stats 探针 anchor 的 theme 字段;探针随 stats-widget v0.13g 迁顶边居中
+# 整体退役,依赖解除):rescan(2.5s)采 ZCode 内容区 3 点亮度(桌面 DC GetPixel,
+# 物理坐标零 DPI 坑)→ 防抖(20 采 ≥16 一致 + 切换 5s 驻留 + 初期前 3 采快通道)→
+# 边沿推 ztheme。采样点 x 30%/50%/70% × y 45%/55%/65%:大块主题底色,避右缘本面板/
+# 弹窗区/顶部居中的 stats 胶囊。pageReady 时刻补调(首推最迟 ~7.5s)
 $script:lastZTheme = $null
+$script:zThemeWin = New-Object System.Collections.Queue
+$script:zThemeSwitchMs = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
 function Push-ZTheme {
   try {
-    $ztFile = Join-Path $env:USERPROFILE '.zcode\stats-widget-anchor.json'
-    $ztItem = Get-Item $ztFile -ErrorAction SilentlyContinue
-    if (-not ($ztItem -and ((New-TimeSpan $ztItem.LastWriteTime (Get-Date)).TotalMilliseconds -lt 5000))) { return }
-    $zt = (Get-Content $ztFile -Raw | ConvertFrom-Json).theme
-    if (($zt -eq 'dark' -or $zt -eq 'light') -and $zt -ne $script:lastZTheme) {
-      $script:lastZTheme = $zt
-      if ($script:pageReady) {
-        [ButlerHost]::PostJson(('{"type":"ztheme","v":"' + $zt + '"}'))
-        WLog ('ztheme push: ' + $zt)
+    if (([int64]$script:zcodeHwnd) -eq [IntPtr]::Zero) { return }
+    if (-not [ButlerNative.Win]::IsWindow($script:zcodeHwnd)) { return }
+    if ([ButlerNative.Win]::IsIconic($script:zcodeHwnd)) { return }
+    $r = New-Object ButlerNative.Win+RECT
+    [ButlerNative.Win]::GetWindowRect($script:zcodeHwnd, [ref]$r) | Out-Null
+    $zw = $r.Right - $r.Left; $zh = $r.Bottom - $r.Top
+    if ($zw -le 0 -or $zh -le 0) { return }
+    $lums = @(
+      [ButlerHost]::PixelLum(($r.Left + [int]($zw * 0.30)), ($r.Top + [int]($zh * 0.45))),
+      [ButlerHost]::PixelLum(($r.Left + [int]($zw * 0.50)), ($r.Top + [int]($zh * 0.55))),
+      [ButlerHost]::PixelLum(($r.Left + [int]($zw * 0.70)), ($r.Top + [int]($zh * 0.65))))
+    $valid = @($lums | Where-Object { $_ -ge 0 } | Sort-Object)
+    if ($valid.Count -eq 0) { return }
+    $med = $valid[[int][Math]::Floor($valid.Count / 2)]
+    $sampled = $(if ($med -gt 140) { 'light' } else { 'dark' })
+    $nowMs = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+    if ($script:zThemeWin.Count -lt 5) {
+      $script:zThemeWin.Enqueue($sampled)
+      if ($script:zThemeWin.Count -ge 3) {
+        $all = $true
+        foreach ($t in $script:zThemeWin) { if ($t -ne $sampled) { $all = $false; break } }
+        if ($all -and $sampled -ne $script:lastZTheme) {
+          $script:lastZTheme = $sampled; $script:zThemeSwitchMs = $nowMs
+          if ($script:pageReady) { [ButlerHost]::PostJson(('{"type":"ztheme","v":"' + $sampled + '"}')); WLog ('ztheme push: ' + $sampled) }
+        }
       }
+      return
+    }
+    $script:zThemeWin.Enqueue($sampled)
+    while ($script:zThemeWin.Count -gt 20) { [void]$script:zThemeWin.Dequeue() }
+    if ($nowMs - $script:zThemeSwitchMs -lt 5000) { return }
+    $light = 0
+    foreach ($t in $script:zThemeWin) { if ($t -eq 'light') { $light++ } }
+    $new = $script:lastZTheme
+    if ($script:lastZTheme -eq 'dark' -and $light -ge 16) { $new = 'light' }
+    if ($script:lastZTheme -eq 'light' -and ($script:zThemeWin.Count - $light) -ge 16) { $new = 'dark' }
+    if ($new -ne $script:lastZTheme) {
+      $script:lastZTheme = $new; $script:zThemeSwitchMs = $nowMs
+      if ($script:pageReady) { [ButlerHost]::PostJson(('{"type":"ztheme","v":"' + $new + '"}')); WLog ('ztheme push: ' + $new) }
     }
   } catch { }
 }
