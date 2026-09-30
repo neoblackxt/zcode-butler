@@ -1695,54 +1695,51 @@
   var EDGE_NAMES = {
     hair: '白10% hairline(ZCode zai-dark 配方,生产默认)', none: '无描边(旧貌对照)',
     glow: '白柔光边缘', lift: '底色抬亮 #202020(zai-dark 面板色)',
-    rainbow: '彩虹柔光(色相 6s 环流)', stars: '星空粒子(沿轮廓波浪来回 + 外逸星屑)',
+    rainbow: '彩虹柔光(色相 6s 环流)', stars: '星空粒子(面板 90 颗 + 弧线按钮 22 颗,波浪来回 + 外逸星屑)',
     input: '深色下底色=ZCode 输入框 #2b2b2b(源码 --color-input,像素双证)'
   };
-  /* stars 方案引擎:沿面板轮廓的白色粒子(随机速度正负往返=波浪感 + 径向呼吸 +
-     闪烁),外加每 ~0.5s 一颗从随机边缘点向外逸散消散的星屑;layer 挂 panelWrap
-     (随收起动画一起滑出),切换方案即拆 */
-  var edgeStarsRAF = 0, edgeStarLayer = null;
+  /* stars 方案引擎(v0.6.9 补:双路径+加密,用户反馈"粒子多一点、弧线按钮呢"):
+     面板轮廓 90 颗 + 弧线按钮沿弧 22 颗,各在自己的坐标系(面板层挂 panelWrap
+     随收起动画同滑;弧线层挂 fab svg 内,同 viewBox 免换算、fab overflow:visible
+     出界可渲染;盘绽开时弧隐粒子不隐=星环),共享一个 rAF;白色粒子随机正负速度
+     往返=波浪感 + 径向呼吸 + 相位错开闪烁;面板每 ~0.5s、弧线每 ~1.2s 一颗外逸
+     星屑;切方案即拆 */
+  var edgeStarsRAF = 0, edgeStarHosts = [];
   function edgeStarsStop() {
     if (edgeStarsRAF) cancelAnimationFrame(edgeStarsRAF);
     edgeStarsRAF = 0;
-    if (edgeStarLayer) { edgeStarLayer.remove(); edgeStarLayer = null; }
+    for (var i = 0; i < edgeStarHosts.length; i++) edgeStarHosts[i].root.remove();
+    edgeStarHosts = [];
   }
   function edgeStarsStart() {
-    if (edgeStarLayer) return;
-    var path = document.getElementById('panelPath');
-    var wrap = document.getElementById('panelWrap');
-    if (!path || !wrap) return;
+    if (edgeStarHosts.length) return;
     var NS = 'http://www.w3.org/2000/svg';
-    var svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 430 2025');
-    svg.setAttribute('width', '430'); svg.setAttribute('height', '2025');
-    svg.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:3;';
-    wrap.insertBefore(svg, wrap.querySelector('.meter'));
-    edgeStarLayer = svg;
-    var L = path.getTotalLength(), N = 46, ps = [], i;
-    function seed(t0) {
-      return {
-        t: t0, v: (3 + Math.random() * 8) * (Math.random() < 0.5 ? -1 : 1),
-        amp: 2 + Math.random() * 5, ph: Math.random() * 6.28,
-        fq: 0.5 + Math.random() * 1.2, r: 0.9 + Math.random() * 1.5,
-        tw: 0.35 + Math.random() * 0.55
-      };
+    function makeHost(cfg) {   /* cfg: {path, root, cx, cy, count, rate(ms)} */
+      var L = cfg.path.getTotalLength(), ps = [], j;
+      function seed(t0) {
+        return {
+          t: t0, v: (3 + Math.random() * 8) * (Math.random() < 0.5 ? -1 : 1),
+          amp: 2 + Math.random() * 5, ph: Math.random() * 6.28,
+          fq: 0.5 + Math.random() * 1.2, r: 0.9 + Math.random() * 1.5,
+          tw: 0.35 + Math.random() * 0.55
+        };
+      }
+      for (j = 0; j < cfg.count; j++) {
+        var c = document.createElementNS(NS, 'circle');
+        c.setAttribute('fill', '#ffffff');
+        cfg.root.appendChild(c);
+        ps.push({ el: c, s: seed(L * j / cfg.count) });
+      }
+      return { path: cfg.path, root: cfg.root, cx: cfg.cx, cy: cfg.cy, L: L,
+               ps: ps, spk: null, spkAt: 0, rate: cfg.rate };
     }
-    for (i = 0; i < N; i++) {
-      var c = document.createElementNS(NS, 'circle');
-      c.setAttribute('fill', '#ffffff');
-      svg.appendChild(c);
-      ps.push({ el: c, s: seed(L * i / N) });
-    }
-    var spk = null, spkAt = 0, last = performance.now();
-    function frame(now) {
-      var dt = Math.min(0.05, (now - last) / 1000); last = now;
-      for (var k = 0; k < ps.length; k++) {
-        var p = ps[k], s = p.s;
+    function frameOf(h, now, dt) {
+      for (var k = 0; k < h.ps.length; k++) {
+        var p = h.ps[k], s = p.s;
         s.t += s.v * dt;
-        if (s.t < 0) s.t += L; else if (s.t > L) s.t -= L;
-        var pt = path.getPointAtLength(s.t);
-        var dx = pt.x - 365, dy = pt.y - 920, dl = Math.hypot(dx, dy) || 1;
+        if (s.t < 0) s.t += h.L; else if (s.t > h.L) s.t -= h.L;
+        var pt = h.path.getPointAtLength(s.t);
+        var dx = pt.x - h.cx, dy = pt.y - h.cy, dl = Math.hypot(dx, dy) || 1;
         var off = 4 + s.amp * Math.sin(now / 1000 * s.fq * 6.283 + s.ph);
         var op = s.tw * (0.55 + 0.45 * Math.sin(now / 1000 * 2.2 + s.ph * 3));
         p.el.setAttribute('cx', (pt.x + dx / dl * off).toFixed(1));
@@ -1750,23 +1747,47 @@
         p.el.setAttribute('r', s.r.toFixed(2));
         p.el.setAttribute('opacity', Math.max(0, op).toFixed(2));
       }
-      if (!spk && now - spkAt > 500) {
-        spkAt = now;
+      if (!h.spk && now - h.spkAt > h.rate) {
+        h.spkAt = now;
         var c2 = document.createElementNS(NS, 'circle');
-        c2.setAttribute('fill', '#ffffff'); svg.appendChild(c2);
-        var t0 = Math.random() * L, q = path.getPointAtLength(t0);
-        var sx = q.x - 365, sy = q.y - 920, sl = Math.hypot(sx, sy) || 1;
-        spk = { el: c2, x: q.x, y: q.y, ux: sx / sl, uy: sy / sl, life: 1, r: 1.4 + Math.random() };
+        c2.setAttribute('fill', '#ffffff'); h.root.appendChild(c2);
+        var q = h.path.getPointAtLength(Math.random() * h.L);
+        var sx = q.x - h.cx, sy = q.y - h.cy, sl = Math.hypot(sx, sy) || 1;
+        h.spk = { el: c2, x: q.x, y: q.y, ux: sx / sl, uy: sy / sl, life: 1, r: 1.4 + Math.random() };
       }
-      if (spk) {
-        spk.x += spk.ux * 26 * dt; spk.y += spk.uy * 26 * dt; spk.life -= dt / 1.6;
-        if (spk.life <= 0) { spk.el.remove(); spk = null; }
+      if (h.spk) {
+        h.spk.x += h.spk.ux * 26 * dt; h.spk.y += h.spk.uy * 26 * dt; h.spk.life -= dt / 1.6;
+        if (h.spk.life <= 0) { h.spk.el.remove(); h.spk = null; }
         else {
-          spk.el.setAttribute('cx', spk.x.toFixed(1)); spk.el.setAttribute('cy', spk.y.toFixed(1));
-          spk.el.setAttribute('r', (spk.r * spk.life).toFixed(2));
-          spk.el.setAttribute('opacity', (spk.life * 0.8).toFixed(2));
+          h.spk.el.setAttribute('cx', h.spk.x.toFixed(1)); h.spk.el.setAttribute('cy', h.spk.y.toFixed(1));
+          h.spk.el.setAttribute('r', (h.spk.r * h.spk.life).toFixed(2));
+          h.spk.el.setAttribute('opacity', (h.spk.life * 0.8).toFixed(2));
         }
       }
+    }
+    var wrap = document.getElementById('panelWrap');
+    var panel = document.getElementById('panelPath');
+    var fabSvg = document.querySelector('.fab svg');
+    var arc = document.getElementById('arcPath');
+    if (wrap && panel) {
+      var svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('viewBox', '0 0 430 2025');
+      svg.setAttribute('width', '430'); svg.setAttribute('height', '2025');
+      svg.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:3;';
+      wrap.insertBefore(svg, wrap.querySelector('.meter'));
+      edgeStarHosts.push(makeHost({ path: panel, root: svg, cx: 365, cy: 920, count: 90, rate: 500 }));
+    }
+    if (fabSvg && arc && arc.getTotalLength() > 0) {
+      var g = document.createElementNS(NS, 'g');
+      g.style.cssText = 'pointer-events:none;';
+      fabSvg.appendChild(g);
+      edgeStarHosts.push(makeHost({ path: arc, root: g, cx: 96.5, cy: 97, count: 22, rate: 1200 }));
+    }
+    if (!edgeStarHosts.length) return;
+    var last = performance.now();
+    function frame(now) {
+      var dt = Math.min(0.05, (now - last) / 1000); last = now;
+      for (var i = 0; i < edgeStarHosts.length; i++) frameOf(edgeStarHosts[i], now, dt);
       edgeStarsRAF = requestAnimationFrame(frame);
     }
     edgeStarsRAF = requestAnimationFrame(frame);
