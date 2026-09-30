@@ -56,7 +56,7 @@ try {
 
 # ---- 尺寸:v0.13g 单胶囊 ×1.5(物理像素;json winW/winH 可覆盖) ----
 $script:dpr = 1.75
-$script:winW = 700; $script:winH = 84   # 视口 CSS 恒 ≈winW/1.75(跨屏自动 DPI 缩放恰消):400×48;胶囊实测 337×37 + 居中余量
+$script:winW = 560; $script:winH = 68   # 视口 CSS 恒 ≈winW/1.75(跨屏自动 DPI 缩放恰消):320×39;胶囊缩 20% 后实测 ~270×30 + 居中余量
 if ($script:cfgWinW -gt 0) { $script:winW = $script:cfgWinW }
 if ($script:cfgWinH -gt 0) { $script:winH = $script:cfgWinH }
 
@@ -322,13 +322,15 @@ public static class StatsHost {
                                     // LOCATIONCHANGE,不滤则按旧烘焙偏移瞬移 = 抖动
       ZRECT r; GetWindowRect2(_zHwnd, out r);
       // v0.13g 顶边居中:水平 = 窗口中心 - 半宽(resize 实时重算),垂直 = 窗口顶边
+      // + 5 CSS px(用户拍板 2026-10-01;按本窗 DPI 换算物理偏移,跨屏视觉一致)
       int x = r.Left + (r.Right - r.Left - _fwW) / 2;
-      int y = r.Top;
+      int y = r.Top + (int)(GetDpiForWindow(_hwnd) * 5L / 96);
       // WinEvent 回调里禁止同步消息类 API(重入会破坏内部状态)→ 只投递,
       // 移动在自家 WndProc 里做;投递消息在下一轮泵即处理,仍是帧级
       PostMessageW(_hwnd, WM_APP_FOLLOW, (IntPtr)x, (IntPtr)y);
     } catch { }
   }
+  [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr h);
   [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr h);
   [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr h, IntPtr dc);
   [DllImport("gdi32.dll")] private static extern uint GetPixel(IntPtr dc, int x, int y);
@@ -451,7 +453,7 @@ function Place-TopCenter {
   $r = New-Object StatsNative.Win+RECT
   [StatsNative.Win]::GetWindowRect($script:zcodeHwnd, [ref]$r) | Out-Null
   $x = [int]($r.Left + (($r.Right - $r.Left) - $script:winW) / 2)
-  $y = [int]$r.Top
+  $y = [int]($r.Top + ([StatsNative.Win]::GetDpiForWindow([StatsHost]::Handle) * 5 / 96))   # 离顶 5 CSS px(与 C# OnLocChange 同口径)
   try { [StatsHost]::MoveTo($x, $y) } catch { }
 }
 
