@@ -1,6 +1,14 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
 # 码管家桌面悬浮窗 v0.6.13(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# v0.6.15(HTML 引擎重做 + 宿主主题通道;性能审查实测渲染器核 CPU 104% 后治理):
+#   ①星空粒子路径预采样 512 点查找表,每帧 O(1) 查表替代 getPointAtLength
+#     (原 ~7000 次/秒长路径贝塞尔求值是最大成本);②30fps 帧闸;③粒子加大
+#     (r 1.5-3.8,原 0.9-2.4,实测中位 1.62→2.67);④主题门控(用户拍板:
+#     仅 ZCode 深色主题出现)——宿主 Push-ZTheme 借 stats 探针 anchor 的 theme
+#     字段(输入框亮度实况采样)边沿推 {"type":"ztheme"},页面 butlerZTheme 启停;
+#     浅色=零动画零开销。实测:浅色 0% / 深色 3.25%(原 104%,降 97%)。
+#     plugin 0.2.27。
 # v0.6.14(宿主侧):跨屏拖动崩溃 + ZCode 拖动卡顿双修(WER 实证 2026-09-30
 #   22:56 OverflowException @ ButlerHost.WndProcImpl,dpr 1.5⇄1.75 跨屏时发):
 #   ①崩溃——窗口在负屏幕坐标区(副屏位于主屏左/上)时 WM_NCHITTEST 的 lParam
@@ -743,7 +751,7 @@ function Push-Data {
         Invoke-Refresh
       }
     }
-    elseif ($msg -like '*ready*') { $script:pageReady = $true; Push-Data }
+    elseif ($msg -like '*ready*') { $script:pageReady = $true; Push-Data; Push-ZTheme }
     # v0.4.9:drag 消息路由已删——面板固定 1/3 锚定,页面侧拖动桥同除,此消息不再出现
   } catch { }
 }
@@ -931,6 +939,28 @@ function Stop-Widget([string]$reason) {
 
 # 生死绑定(v0.4.0,用户拍板):ZCode 关闭 → 悬浮窗随退,不再退屏独立存活;
 # 窗口句柄丢失先重吸附;脚本被删(插件卸载)自退出
+
+# v0.6.15 星空主题门控:粒子仅 ZCode 深色主题时出现(用户拍板)。主题信号借 stats
+# 探针 anchor 文件的 theme 字段(输入框 4 点亮度实况采样,120ms 更新——系统跟随主题
+# 也天然正确);>5s 陈旧不推(stats 死亡/自愈换代窗口页面保持当前态)。仅边沿推送
+# +pageReady 时刻补推初值(首条早于 ready 会被页面错过)
+$script:lastZTheme = $null
+function Push-ZTheme {
+  try {
+    $ztFile = Join-Path $env:USERPROFILE '.zcode\stats-widget-anchor.json'
+    $ztItem = Get-Item $ztFile -ErrorAction SilentlyContinue
+    if (-not ($ztItem -and ((New-TimeSpan $ztItem.LastWriteTime (Get-Date)).TotalMilliseconds -lt 5000))) { return }
+    $zt = (Get-Content $ztFile -Raw | ConvertFrom-Json).theme
+    if (($zt -eq 'dark' -or $zt -eq 'light') -and $zt -ne $script:lastZTheme) {
+      $script:lastZTheme = $zt
+      if ($script:pageReady) {
+        [ButlerHost]::PostJson(('{"type":"ztheme","v":"' + $zt + '"}'))
+        WLog ('ztheme push: ' + $zt)
+      }
+    }
+  } catch { }
+}
+
 $rescanTimer = New-Object System.Windows.Threading.DispatcherTimer
 $rescanTimer.Interval = [TimeSpan]::FromMilliseconds(2500)
 $rescanTimer.Add_Tick({
@@ -942,6 +972,7 @@ $rescanTimer.Add_Tick({
       Stop-Widget 'script-deleted(插件卸载)'
     }
     if (-not (Test-ZcodeAlive)) { Stop-Widget 'zcode-dead' }
+    Push-ZTheme
     if ($script:dockMode -ne 'zcode-right') { return }
     # owned window 随 owner 销毁:自身句柄失效 = ZCode 主窗已亡(进程还活=窗口重建期),
     # 退出清场,待下次 SessionStart wake 重拉

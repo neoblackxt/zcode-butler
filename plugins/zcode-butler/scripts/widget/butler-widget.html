@@ -1704,7 +1704,13 @@
      随收起动画同滑;弧线层挂 fab svg 内,同 viewBox 免换算、fab overflow:visible
      出界可渲染;盘绽开时弧隐粒子不隐=星环),共享一个 rAF;白色粒子随机正负速度
      往返=波浪感 + 径向呼吸 + 相位错开闪烁;面板每 ~0.5s、弧线每 ~1.2s 一颗外逸
-     星屑;切方案即拆 */
+     星屑;切方案即拆。
+     v0.6.15 性能重做(实测渲染器核 CPU 104%):①路径预采样表——启动时每条路径
+     采样 512+1 点(坐标+径向单位向量)建表,每帧 O(1) 查表+线性插值替代
+     getPointAtLength(原每秒 ~7000 次长路径贝塞尔求值是最大成本);②30fps 帧闸
+     (rAF 60Hz 醒、≥31ms 才执行一帧);③粒子加大(用户拍板):r 1.5-3.8(原
+     0.9-2.4)、星屑 2.2-3.8(原 1.4+)。主题门控(仅 ZCode 深色才出现)见
+     butlerZTheme/applyStarsByTheme 与生产默认启动点 */
   var edgeStarsRAF = 0, edgeStarHosts = [];
   function edgeStarsStop() {
     if (edgeStarsRAF) cancelAnimationFrame(edgeStarsRAF);
@@ -1715,15 +1721,38 @@
   function edgeStarsStart() {
     if (edgeStarHosts.length) return;
     var NS = 'http://www.w3.org/2000/svg';
+    var NTAB = 512;
+    function buildTable(pth, cx, cy) {
+      var L = pth.getTotalLength();
+      var xs = new Array(NTAB + 1), ys = new Array(NTAB + 1), nx = new Array(NTAB + 1), ny = new Array(NTAB + 1);
+      for (var i = 0; i <= NTAB; i++) {
+        var pt = pth.getPointAtLength(L * i / NTAB);
+        xs[i] = pt.x; ys[i] = pt.y;
+        var dx = pt.x - cx, dy = pt.y - cy, dl = Math.hypot(dx, dy) || 1;
+        nx[i] = dx / dl; ny[i] = dy / dl;
+      }
+      return { L: L, xs: xs, ys: ys, nx: nx, ny: ny };
+    }
+    /* 查表采样:f∈[0,1) → 表内索引 + 相邻两点线性插值(frameOf 单线程,复用 out 免分配) */
+    function sample(tb, f, out) {
+      var u = f * NTAB, i = u | 0, t = u - i;
+      if (i >= NTAB) { i = NTAB - 1; t = 1; }
+      out.x = tb.xs[i] + (tb.xs[i + 1] - tb.xs[i]) * t;
+      out.y = tb.ys[i] + (tb.ys[i + 1] - tb.ys[i]) * t;
+      out.nx = tb.nx[i] + (tb.nx[i + 1] - tb.nx[i]) * t;
+      out.ny = tb.ny[i] + (tb.ny[i + 1] - tb.ny[i]) * t;
+    }
     function makeHost(cfg) {   /* cfg: {paths:[..], pick:fn->idx, root, cx, cy, count, rate(ms), lref}
         v0.6.13 多路径:每帧按 pick() 选当前路径(粒子按 f=0..1 比例分布,换路径无缝),
-        活跃粒子数随路径长缩放(activeN = count × L/lref,短弧自动减密度) */
+        活跃粒子数随路径长缩放(activeN = count × L/lref,短弧自动减密度);
+        v0.6.15 起每条路径预采样为 tabs[i](径向向量随点烘焙进表,host 不再存 cx/cy) */
       var ps = [], j;
       function seed(f0) {
         return {
           f: f0, v: (3 + Math.random() * 8) * (Math.random() < 0.5 ? -1 : 1),
           amp: 2 + Math.random() * 5, ph: Math.random() * 6.28,
-          fq: 0.5 + Math.random() * 1.2, r: 0.9 + Math.random() * 1.5,
+          fq: 0.5 + Math.random() * 1.2,
+          r: 1.5 + Math.random() * 2.3,
           tw: 0.35 + Math.random() * 0.55
         };
       }
@@ -1733,24 +1762,25 @@
         cfg.root.appendChild(c);
         ps.push({ el: c, s: seed(j / cfg.count) });
       }
-      return { paths: cfg.paths, pick: cfg.pick, root: cfg.root, cx: cfg.cx, cy: cfg.cy,
+      var tabs = [];
+      for (j = 0; j < cfg.paths.length; j++) tabs.push(buildTable(cfg.paths[j], cfg.cx, cfg.cy));
+      return { tabs: tabs, pick: cfg.pick, root: cfg.root,
                lref: cfg.lref, ps: ps, spk: null, spkAt: 0, rate: cfg.rate };
     }
+    var SP = { x: 0, y: 0, nx: 0, ny: 0 };
     function frameOf(h, now, dt) {
-      var pth = h.paths[h.pick()];
-      var L = pth.getTotalLength();
-      var active = Math.max(6, Math.min(h.ps.length, Math.round(h.ps.length * L / h.lref)));
+      var tb = h.tabs[h.pick()];
+      var active = Math.max(6, Math.min(h.ps.length, Math.round(h.ps.length * tb.L / h.lref)));
       for (var k = 0; k < h.ps.length; k++) {
         var p = h.ps[k], s = p.s;
         if (k >= active) { p.el.setAttribute('opacity', 0); continue; }
-        s.f += (s.v / L) * dt;
+        s.f += (s.v / tb.L) * dt;
         if (s.f < 0) s.f += 1; else if (s.f > 1) s.f -= 1;
-        var pt = pth.getPointAtLength(s.f * L);
-        var dx = pt.x - h.cx, dy = pt.y - h.cy, dl = Math.hypot(dx, dy) || 1;
+        sample(tb, s.f, SP);
         var off = 4 + s.amp * Math.sin(now / 1000 * s.fq * 6.283 + s.ph);
         var op = s.tw * (0.55 + 0.45 * Math.sin(now / 1000 * 2.2 + s.ph * 3));
-        p.el.setAttribute('cx', (pt.x + dx / dl * off).toFixed(1));
-        p.el.setAttribute('cy', (pt.y + dy / dl * off).toFixed(1));
+        p.el.setAttribute('cx', (SP.x + SP.nx * off).toFixed(1));
+        p.el.setAttribute('cy', (SP.y + SP.ny * off).toFixed(1));
         p.el.setAttribute('r', s.r.toFixed(2));
         p.el.setAttribute('opacity', Math.max(0, op).toFixed(2));
       }
@@ -1758,9 +1788,8 @@
         h.spkAt = now;
         var c2 = document.createElementNS(NS, 'circle');
         c2.setAttribute('fill', '#ffffff'); h.root.appendChild(c2);
-        var q = pth.getPointAtLength(Math.random() * L);
-        var sx = q.x - h.cx, sy = q.y - h.cy, sl = Math.hypot(sx, sy) || 1;
-        h.spk = { el: c2, x: q.x, y: q.y, ux: sx / sl, uy: sy / sl, life: 1, r: 1.4 + Math.random() };
+        sample(tb, Math.random(), SP);
+        h.spk = { el: c2, x: SP.x, y: SP.y, ux: SP.nx, uy: SP.ny, life: 1, r: 2.2 + Math.random() * 1.6 };
       }
       if (h.spk) {
         h.spk.x += h.spk.ux * 26 * dt; h.spk.y += h.spk.uy * 26 * dt; h.spk.life -= dt / 1.6;
@@ -1806,13 +1835,31 @@
       }));
     }
     if (!edgeStarHosts.length) return;
-    var last = performance.now();
+    var lastExec = 0;
     function frame(now) {
-      var dt = Math.min(0.05, (now - last) / 1000); last = now;
-      for (var i = 0; i < edgeStarHosts.length; i++) frameOf(edgeStarHosts[i], now, dt);
       edgeStarsRAF = requestAnimationFrame(frame);
+      if (now - lastExec < 31) return;   /* v0.6.15 30fps 帧闸:rAF 照常续排,≥31ms 才执行一帧 */
+      var dt = Math.min(0.05, (now - lastExec) / 1000);
+      lastExec = now;
+      for (var i = 0; i < edgeStarHosts.length; i++) frameOf(edgeStarHosts[i], now, dt);
     }
     edgeStarsRAF = requestAnimationFrame(frame);
+  }
+  /* ── v0.6.15 星空主题门控(用户拍板:仅 ZCode 深色主题才出现,浅色=零动画零开销)──
+     信号 = 宿主 rescan(2.5s)读 stats 探针 anchor 的 theme 字段(输入框亮度实况采样,
+     系统跟随也天然正确)边沿推 {"type":"ztheme"};信号未到(刚载入/stats 自愈换代窗口)
+     保持当前态;?edge= 预览态不受门控(七案全可看) */
+  var zThemeDark = false;
+  function butlerZTheme(v) {
+    var dark = (v === 'dark');
+    if (dark === zThemeDark) return;
+    zThemeDark = dark;
+    applyStarsByTheme();
+  }
+  function applyStarsByTheme() {
+    if (document.body.dataset.edge) return;   /* 预览态(?edge= 已设 dataset.edge) */
+    var rm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (zThemeDark && !rm) edgeStarsStart(); else edgeStarsStop();
   }
   /* ── 眼睛表情引擎(v0.6.12 单瞳重构):用户定稿「整个大黑圆=眼球,白圈=瞳孔」——
      眼睛即按钮本体:黑盘 r76.5 为眼球(原生元素,不动),白圈(瞳)成为独立可动层
@@ -2076,12 +2123,9 @@
   (function () {
     var m = location.search.match(/[?&]edge=(none|hair|glow|lift|rainbow|stars|input)/);
     if (!m) {
-      /* 生产默认(v0.6.10 用户拍板:粒子;将来做成用户选项,彩虹与粒子两案都保留):
-         面板星屑 + 弧线按钮全环星环,底描边仍 hair(v0.6.8);?edge=hair 可静态对照。
-         prefers-reduced-motion 用户退回纯 hair(静态) */
-      if (!window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        edgeStarsStart();
-      }
+      /* 生产默认(v0.6.10 用户拍板:粒子;v0.6.15 起由主题门控决定是否启动——仅 ZCode
+         深色主题出现,浅色零动画零开销;首条 ztheme 到达前(宿主 2.5s 内推)保守不显示。
+         底描边仍 hair(v0.6.8);?edge=hair 可静态对照;reduced-motion 退纯 hair */
       return;
     }
     var hud = document.createElement('div');
@@ -2165,6 +2209,9 @@
         } else if (msg && msg.type === 'notify' && msg.payload) {
           /* 活动提醒入队:收起态眼镜弹徽标;展开态静默积累,收起时补弹 */
           butlerNotify(msg.payload.title || '活动提醒', msg.payload.body || '');
+        } else if (msg && msg.type === 'ztheme') {
+          /* v0.6.15 星空主题门控:宿主边沿推送的 ZCode 实况主题(深色才启粒子) */
+          butlerZTheme(msg.v);
         }
       } catch (err) { }
     });
