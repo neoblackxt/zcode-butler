@@ -56,9 +56,63 @@ try {
 
 # ---- 尺寸:v0.13g 单胶囊 ×1.5(物理像素;json winW/winH 可覆盖) ----
 $script:dpr = 1.75
-$script:winW = 560; $script:winH = 68   # 视口 CSS 恒 ≈winW/1.75(跨屏自动 DPI 缩放恰消):320×39;胶囊缩 20% 后实测 ~270×30 + 居中余量
-if ($script:cfgWinW -gt 0) { $script:winW = $script:cfgWinW }
-if ($script:cfgWinH -gt 0) { $script:winH = $script:cfgWinH }
+$script:baseWinW = 560; $script:baseWinH = 68   # 基准(scale=1):视口 CSS 恒 ≈baseWinW/1.75:320×39;胶囊缩 20% 后实测 ~270×30 + 居中余量
+if ($script:cfgWinW -gt 0) { $script:baseWinW = $script:cfgWinW }
+if ($script:cfgWinH -gt 0) { $script:baseWinH = $script:cfgWinH }
+$script:winW = $script:baseWinW; $script:winH = $script:baseWinH   # 动态(= 基准 × uiScale)
+
+# ---- v0.13h 屏幕等比缩放(用户拍板 2026-10-01):基准 = 3840 物理宽(用户 4K@1.75 调好的
+#      比例),scale = ZCode 所在屏物理宽/3840。双管:窗口物理 = 基准×scale(SetWindowPos
+#      显式重设,覆盖系统跨屏自动缩放)+ 页面 zoom = scale×1.75/dpr(内容布局等比,
+#      有效视口恒 ≈winW/1.75 胶囊恒装下,呈现物理 = 基准物理×scale)。
+#      屏变检测挂 rescan(monitor 变化即重算+重推+重设) ----
+$script:uiScale = 1.0
+function Get-ScreenScaleOf([IntPtr]$hwnd) {
+  try {
+    if ($hwnd -eq [IntPtr]::Zero) { return 1.0 }
+    $mon = [StatsNative.Win]::MonitorFromWindow($hwnd, 1)   # MONITOR_DEFAULTTONEAREST
+    if ($mon -eq [IntPtr]::Zero) { return 1.0 }
+    $mi = New-Object StatsNative.Win+MONITORINFOEX
+    $mi.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf($mi)
+    if (-not [StatsNative.Win]::GetMonitorInfoW($mon, [ref]$mi)) { return 1.0 }
+    $w = $mi.Monitor.Right - $mi.Monitor.Left
+    if ($w -le 0) { return 1.0 }
+    $s = $w / 3840.0
+    if ($s -lt 0.3 -or $s -gt 3.0) { return 1.0 }   # 防御:离谱值回 1
+    return [Math]::Round($s, 3)
+  } catch { return 1.0 }
+}
+$script:lastScaleMon = [IntPtr]::Zero
+$script:curZoom = 0.0
+function Update-UiScale([bool]$force) {
+  try {
+    if (([int64]$script:zcodeHwnd) -eq [IntPtr]::Zero) { return }
+    $mon = [StatsNative.Win]::MonitorFromWindow($script:zcodeHwnd, 1)
+    if (-not $force -and $mon -eq $script:lastScaleMon) { return }
+    $script:lastScaleMon = $mon
+    $s = Get-ScreenScaleOf $script:zcodeHwnd
+    if ($force -or $s -ne $script:uiScale) {
+      $script:uiScale = $s
+      # 窗口物理重设(基准 × scale;0x16 = NOMOVE|NOZORDER|NOACTIVATE)
+      $nw = [int][Math]::Ceiling($script:baseWinW * $s)
+      $nh = [int][Math]::Ceiling($script:baseWinH * $s)
+      $script:winW = $nw; $script:winH = $nh
+      try {
+        [StatsNative.Win]::SetWindowPos([StatsHost]::Handle, [IntPtr]::Zero, 0, 0, $nw, $nh, 0x0016) | Out-Null
+        [StatsHost]::SetFollowParams($script:zcodeHwnd, $nw, $nh)
+        Place-TopCenter
+      } catch { WLog ('ui-scale resize THREW ' + $_.Exception.Message) }
+      # 页面 zoom:内容布局 ×(scale×1.75/dpr)——呈现物理 = 基准×scale
+      $dpi = [StatsNative.Win]::GetDpiForWindow([StatsHost]::Handle)
+      if ($dpi -le 0) { $dpi = 168 }
+      $z = [Math]::Round($s * 1.75 / ($dpi / 96.0), 3)
+      if ($force -or $z -ne $script:curZoom) {
+        $script:curZoom = $z
+        try { [StatsHost]::PostJson(('{"type":"zoom","v":' + $z.ToString('0.###', [System.Globalization.CultureInfo]::InvariantCulture) + '}')); WLog ('ui-scale: ' + $s + ' win=' + $nw + 'x' + $nh + ' zoom=' + $z) } catch { }
+      }
+    }
+  } catch { }
+}
 
 # ---- 依赖装载与 DPI ----
 Add-Type -AssemblyName WindowsBase, System.Drawing
@@ -84,6 +138,10 @@ public delegate void WinEventProc(IntPtr hHook, uint evt, IntPtr hwnd, int idObj
 [DllImport("kernel32.dll")] public static extern IntPtr GetCurrentProcess();
 [DllImport("kernel32.dll")] public static extern bool TerminateProcess(IntPtr h, uint exitCode);
 [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int attr, out RECT r, int cb);
+[DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern bool GetMonitorInfoW(IntPtr h, ref MONITORINFOEX mi);
+[StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+public struct MONITORINFOEX { public int cbSize; public RECT Monitor; public RECT WorkArea; public uint Flags; [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string DeviceName; }
 public static IntPtr SetOwner(IntPtr h, IntPtr owner) {
   if (IntPtr.Size == 8) return SetWindowLongPtr(h, -8, owner);
   return new IntPtr(SetWindowLong(h, -8, owner.ToInt32()));
@@ -414,6 +472,7 @@ WLog ('boot: init ' + $initX + ',' + $initY + ' ' + $script:winW + 'x' + $script
 [StatsHost]::OnMessage = {
   param($msg)
   if ($msg -like '*theme*' -or $msg -like '*stats*' -or $msg -like '*"vp"*') { WLog ('page-ack: ' + $msg) }
+  if ($msg -like '*ready*') { Update-UiScale $true }   # v0.13h:页面就绪补推 zoom 首值(ready 前推送会丢)
 }
 
 # =====================================================================
@@ -649,6 +708,8 @@ $rescanTimer.Add_Tick({
     elseif ([StatsNative.Win]::IsIconic($script:zcodeHwnd) -or (-not [StatsNative.Win]::IsWindowVisible($script:zcodeHwnd))) {
       if ([StatsHost]::Visible) { [StatsHost]::Hide() }
     }
+    # v0.13h 屏幕等比:ZCode 跨屏(monitor 变化)即重算 scale 并推 zoom
+    Update-UiScale $false
     # v0.13g:UIA 探针/看门狗退役(定位改窗口矩形;探针文件保留在仓库不再拉起,回退=恢复拉起段)
   } finally { $script:rescanBusy = $false }
 })

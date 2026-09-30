@@ -182,6 +182,10 @@
       if (m.type === 'value' && m.k === 'ttft') ttftEl.textContent = (+m.v).toFixed(2) + 's';
       if (m.type === 'value' && m.k === 'tps') tpsEl.textContent = (+m.v).toFixed(1);
       if (m.type === 'demo') { demo = true; if (state === 'idle') setState('waiting'); }
+      if (m.type === 'zoom' && +m.v > 0) {   // v0.13h 屏幕等比缩放:基准 3840 物理宽,宿主按 ZCode 所在屏算好推来
+        document.body.style.zoom = m.v;
+        try { chrome.webview.postMessage('{"type":"zoomApplied","v":' + m.v + '}'); } catch (err) { }
+      }
     });
   } catch (err) { }
 

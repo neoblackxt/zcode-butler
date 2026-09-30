@@ -181,6 +181,12 @@ Add-Type -Namespace ButlerNative -Name Win -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
 [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
 [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+// v0.6.17 屏幕等比缩放:ZCode 所在屏物理宽 → 内容 scale(用户 4K@1.75 为基准)
+[DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern bool GetMonitorInfoW(IntPtr h, ref MONITORINFOEX mi);
+[StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+public struct MONITORINFOEX { public int cbSize; public RECT Monitor; public RECT WorkArea; public uint Flags; [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string DeviceName; }
+[DllImport("user32.dll")] public static extern int GetDpiForWindow(IntPtr h);
 [DllImport("user32.dll")] public static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc proc, uint pid, uint idObject, uint flags);
 public delegate void WinEventProc(IntPtr hHook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
 [DllImport("user32.dll")] public static extern bool UnhookWinEvent(IntPtr hHook);
@@ -679,8 +685,16 @@ public static class ButlerHost {
 $script:stageH = 600.0
 $dpiScale = 1.75   # 兜底值;实际以 GetDpiForWindow 后的首帧 GetWindowRect 为准由页面 shape 校正
 $popScale = 1.3                                   # 须与 butler-widget.html 的 --pop-scale 一致
-$script:winH = [int][Math]::Round($script:stageH * $dpiScale)          # ≈1050
-$script:winW = [int][Math]::Ceiling((265.0 + 780.0 * $popScale + 60.0 * $popScale) * ($script:stageH / 2025.0) * $dpiScale + 4)   # ≈708
+# v0.6.17 屏幕等比缩放(用户拍板 2026-10-01):基准 = 3840 物理宽(用户 4K@1.75 调好的比例),
+# 实际窗口物理 = 基准尺寸 × uiScale;uiScale = ZCode 所在屏「物理宽×1.75/(3840×屏dpr)」,
+# 启动回退 1.0,Attach 后按 ZCode 屏 force 校正,rescan 检测跨屏(monitor 变)动态重设
+# (SetWindowPos 调尺寸 → WM_SIZE 同步 WebView2 Bounds → 页面 --u 舞台自适应自动等比,
+#  shape 掩码全运行时实测自动跟随,无设计坐标常量)
+$script:uiScale = 1.0
+$script:baseWinH = [int][Math]::Round($script:stageH * $dpiScale)          # ≈1050
+$script:baseWinW = [int][Math]::Ceiling((265.0 + 780.0 * $popScale + 60.0 * $popScale) * ($script:stageH / 2025.0) * $dpiScale + 4)   # ≈708
+$script:winH = $script:baseWinH
+$script:winW = $script:baseWinW
 
 # 页面加载:file:// 会被 WebView2 磁盘缓存(实测事故)→ 复制到随机临时路径,正本唯一
 $script:pageFile = Join-Path $env:TEMP ('butler-widget-page-{0}.html' -f [Guid]::NewGuid().ToString('N'))
@@ -914,6 +928,7 @@ function Attach-Zcode {
   # v0.4.6:几何参数(_zHwnd2)就位后才能定位——原先此调用在 SetFollowParams 之前,
   # C# 侧目标句柄未设置,首次吸附实为 no-op,悬浮窗停在兜底位干等 ZCode 首次移动
   Position-Follow
+  Update-UiScale $true   # v0.6.17:按 ZCode 所在屏校正等比 scale(启动回退 1.0)
   return $true
 }
 function Detach-Zcode {
@@ -1009,6 +1024,45 @@ function Push-ZTheme {
   } catch { }
 }
 
+# v0.6.17 屏幕等比(实现):窗口物理 = 基准 × scale,SetWindowPos 调尺寸不动位置;
+# WM_SIZE 自动同步 WebView2 Bounds,页面 --u 舞台自适应与 shape 掩码全实测自动跟随
+$script:lastScaleMon = [IntPtr]::Zero
+function Get-ScreenScaleOf([IntPtr]$hwnd) {
+  try {
+    if ($hwnd -eq [IntPtr]::Zero) { return 1.0 }
+    $mon = [ButlerNative.Win]::MonitorFromWindow($hwnd, 1)
+    if ($mon -eq [IntPtr]::Zero) { return 1.0 }
+    $mi = New-Object ButlerNative.Win+MONITORINFOEX
+    $mi.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf($mi)
+    if (-not [ButlerNative.Win]::GetMonitorInfoW($mon, [ref]$mi)) { return 1.0 }
+    $w = $mi.Monitor.Right - $mi.Monitor.Left
+    if ($w -le 0) { return 1.0 }
+    $s = $w / 3840.0
+    if ($s -lt 0.3 -or $s -gt 3.0) { return 1.0 }   # 防御:离谱值回 1
+    return [Math]::Round($s, 3)
+  } catch { return 1.0 }
+}
+function Update-UiScale([bool]$force) {
+  try {
+    if (([int64]$script:zcodeHwnd) -eq 0) { return }
+    $mon = [ButlerNative.Win]::MonitorFromWindow($script:zcodeHwnd, 1)
+    if (-not $force -and $mon -eq $script:lastScaleMon) { return }
+    $script:lastScaleMon = $mon
+    $s = Get-ScreenScaleOf $script:zcodeHwnd
+    if ($s -ne $script:uiScale) {
+      $script:uiScale = $s
+      $script:winH = [int][Math]::Round($script:baseWinH * $s)
+      $script:winW = [int][Math]::Ceiling($script:baseWinW * $s)
+      try {
+        [ButlerNative.Win]::SetWindowPos((Get-WidgetHwnd), [IntPtr]::Zero, 0, 0, $script:winW, $script:winH, 0x0016) | Out-Null   # NOMOVE|NOZORDER|NOACTIVATE
+        [ButlerHost]::SetFollowParams($script:zcodeHwnd, $script:winW)
+        [ButlerHost]::SyncFollowNow()
+        WLog ('ui-scale: ' + $s + ' -> ' + $script:winW + 'x' + $script:winH)
+      } catch { WLog ('ui-scale THREW ' + $_.Exception.Message) }
+    }
+  } catch { }
+}
+
 $rescanTimer = New-Object System.Windows.Threading.DispatcherTimer
 $rescanTimer.Interval = [TimeSpan]::FromMilliseconds(2500)
 $rescanTimer.Add_Tick({
@@ -1020,6 +1074,7 @@ $rescanTimer.Add_Tick({
       Stop-Widget 'script-deleted(插件卸载)'
     }
     if (-not (Test-ZcodeAlive)) { Stop-Widget 'zcode-dead' }
+    Update-UiScale $false   # v0.6.17:ZCode 跨屏(monitor 变)即重算等比 scale 并重设窗口
     Push-ZTheme
     if ($script:dockMode -ne 'zcode-right') { return }
     # owned window 随 owner 销毁:自身句柄失效 = ZCode 主窗已亡(进程还活=窗口重建期),
