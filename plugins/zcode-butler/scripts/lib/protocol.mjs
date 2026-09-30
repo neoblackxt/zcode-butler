@@ -52,6 +52,12 @@ export function keyCardOf(k) {
   };
 }
 
+/** 协议模型条(当日/周窗口弹框明细):modelSummaryList 项 → { name, tokens } */
+export const modelCardOf = (m) => ({
+  name: String(m?.modelName ?? m?.name ?? ''),
+  tokens: Number(m?.totalTokens ?? m?.tokens) || 0,
+});
+
 export const newsCardOf = (n) => ({
   id: String(n.id),
   title: String(n.title),
@@ -68,12 +74,15 @@ export function newsStateOf(items, readIds) {
   return { unread: marked.filter((n) => !n.read).length, items: marked };
 }
 
-/** 空载荷骨架(全部模块未跑时的起点) */
+/** 空载荷骨架(全部模块未跑时的起点)
+ *  v0.2.12 起 account 增弹框明细三字段:dayUsage(当日总/高峰/非高峰拆分)、
+ *  modelsToday / modelsWeek(当日/本周每模型 token);模块降级时 null / [] */
 export function emptyProtocol(nowMs = Date.now()) {
   return {
     protocolVersion: PROTOCOL_VERSION,
     fetchedAt: new Date(nowMs).toISOString(),
-    account: { fiveHour: null, weekly: null, mcpMonthly: null, peakNow: false },
+    account: { fiveHour: null, weekly: null, mcpMonthly: null, peakNow: false,
+      dayUsage: null, modelsToday: [], modelsWeek: [] },
     keys: [],
     news: { unread: 0, items: [] },
     errors: [],
@@ -114,6 +123,30 @@ export function validateProtocol(p) {
     checkRing('weekly', p.account.weekly);
     checkRing('mcpMonthly', p.account.mcpMonthly);
     if (typeof p.account.peakNow !== 'boolean') errs.push('account.peakNow 应为布尔');
+    // v0.2.12 弹框明细三字段:缺省容忍(旧载荷),出现即校验类型
+    const du = p.account.dayUsage;
+    if (du !== undefined && du !== null) {
+      if (!isObj(du)) {
+        errs.push('account.dayUsage 应为对象或 null');
+      } else {
+        for (const seg of ['total', 'peak', 'offPeak']) {
+          if (!isObj(du[seg])) errs.push(`account.dayUsage.${seg} 应为对象`);
+          else for (const f of ['calls', 'tokens']) {
+            if (typeof du[seg][f] !== 'number') errs.push(`account.dayUsage.${seg}.${f} 应为数字`);
+          }
+        }
+      }
+    }
+    for (const list of ['modelsToday', 'modelsWeek']) {
+      const arr = p.account[list];
+      if (arr === undefined) continue;
+      if (!Array.isArray(arr)) { errs.push(`account.${list} 应为数组`); continue; }
+      arr.forEach((m, i) => {
+        if (!isObj(m) || typeof m.name !== 'string' || typeof m.tokens !== 'number') {
+          errs.push(`account.${list}[${i}] 应含 name/tokens 字段`);
+        }
+      });
+    }
   }
 
   if (!Array.isArray(p.keys)) {

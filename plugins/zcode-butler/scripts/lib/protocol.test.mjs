@@ -2,15 +2,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PROTOCOL_VERSION, ringOf, mcpRingOf, keyCardOf, newsCardOf, newsStateOf,
+  PROTOCOL_VERSION, ringOf, mcpRingOf, keyCardOf, newsCardOf, newsStateOf, modelCardOf,
   emptyProtocol, validateProtocol,
 } from './protocol.mjs';
 
 test('emptyProtocol:骨架合法且通过校验', () => {
   const p = emptyProtocol();
   assert.equal(p.protocolVersion, PROTOCOL_VERSION);
-  assert.deepEqual(p.account, { fiveHour: null, weekly: null, mcpMonthly: null, peakNow: false });
+  assert.deepEqual(p.account, { fiveHour: null, weekly: null, mcpMonthly: null, peakNow: false,
+    dayUsage: null, modelsToday: [], modelsWeek: [] });
   assert.deepEqual(validateProtocol(p), []);
+});
+
+test('modelCardOf:modelSummaryList 项/协议项双兼容,数值清洗', () => {
+  assert.deepEqual(modelCardOf({ modelName: 'GLM-5.3', totalTokens: '145822480' }), { name: 'GLM-5.3', tokens: 145822480 });
+  assert.deepEqual(modelCardOf({ name: 'GLM-4.6', tokens: 42 }), { name: 'GLM-4.6', tokens: 42 });
+  assert.deepEqual(modelCardOf(null), { name: '', tokens: 0 });
 });
 
 test('ringOf/mcpRingOf:数值清洗 + tools 三字段兜底', () => {
@@ -80,4 +87,28 @@ test('validateProtocol:环为 null 合法(模块降级语义)', () => {
   const p = emptyProtocol();
   p.errors = [{ module: 'usage', message: '网络错误' }];
   assert.deepEqual(validateProtocol(p), []);
+});
+
+test('validateProtocol:v0.2.12 弹框明细三字段(缺省容忍;类型错逐项点名)', () => {
+  const p = emptyProtocol();
+  p.account.dayUsage = { total: { calls: 1, tokens: 'x' }, peak: null, offPeak: { calls: 0, tokens: 0 } };
+  p.account.modelsToday = [{ name: 1, tokens: 2 }];
+  p.account.modelsWeek = 'x';
+  const errs = validateProtocol(p);
+  assert.ok(errs.some((e) => e.includes('dayUsage.total.tokens')));
+  assert.ok(errs.some((e) => e.includes('dayUsage.peak')));
+  assert.ok(errs.some((e) => e.includes('modelsToday[0]')));
+  assert.ok(errs.some((e) => e.includes('modelsWeek')));
+  // 合法全量形态通过
+  const q = emptyProtocol();
+  q.account.dayUsage = { total: { calls: 1, tokens: 10 }, peak: { calls: 0, tokens: 0 }, offPeak: { calls: 1, tokens: 10 } };
+  q.account.modelsToday = [{ name: 'GLM-5.3', tokens: 100 }];
+  q.account.modelsWeek = [];
+  assert.deepEqual(validateProtocol(q), []);
+  // 缺省容忍(旧载荷无三字段)
+  const r = emptyProtocol();
+  delete r.account.dayUsage;
+  delete r.account.modelsToday;
+  delete r.account.modelsWeek;
+  assert.deepEqual(validateProtocol(r), []);
 });

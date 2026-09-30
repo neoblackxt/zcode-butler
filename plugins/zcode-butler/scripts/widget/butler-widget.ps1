@@ -1,6 +1,13 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
-# 码管家桌面悬浮窗 v0.5.0(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# 码管家桌面悬浮窗 v0.6.0(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# v0.6.0:环详情弹窗四分发真实数据(HTML 侧;宿主零改动)——5h/7d/mcp/key 四种内容
+#   按悬停环渲染:5h=额度池条+重置时间+高峰提醒条(北京时间)+当日总/高峰/非高峰+
+#   当日模型一览;7d=每周额度条+本周每模型 token(周窗口=重置点−7天);mcp=月度总量条+
+#   搜索/读取/Zread 分工具条;key=全量 Key 卡(国内/海外 provider)。数据走协议新增
+#   account.dayUsage/modelsToday/modelsWeek 字段(status.mjs --json 整包透传,Push-Data
+#   不挑字段故本文件无数据面改动);弹窗气泡体高 548→700 舞台px(HTML 侧,窗口尺寸
+#   公式只涉宽度故 winW 不变;弹窗区仍不在 NCHITTEST 掩码,穿透语义不变)。
 # v0.5.0:面板展开/收起动效正式入库(自 v0.4.9-preview 缓存实验合入,用户验收
 #   "很喜欢"):展开 0.62s expo-out、收起 0.42s ease-in-cubic + translateX(106%),
 #   四环错峰归位;齿轮点击 = 展开/收起 + 旋转反馈,状态存 localStorage

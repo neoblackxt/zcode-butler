@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   bjFmt, bjDayStartMs, bjHourLabel, weekdayOfDateStr, isPeakHourLabel, peakOf,
-  mapQuotaToAccount, mapToolUsageToday, splitDayUsage, countdown, accountSummaryLine,
+  mapQuotaToAccount, mapToolUsageToday, splitDayUsage, modelsOf, weeklyResetAtOf,
+  countdown, accountSummaryLine,
 } from './usage.mjs';
 
 // 北京时间纯函数:全部显式 +08:00 折算,与本机时区无关
@@ -101,6 +102,37 @@ test('splitDayUsage:总量拆高峰/非高峰;序列缺失返回 null', () => {
   assert.deepEqual(s.offPeak, { calls: 30, tokens: 3000 });
   assert.equal(splitDayUsage({ totalUsage: { totalModelCallCount: 1 } }), null);
   assert.equal(splitDayUsage(null), null);
+});
+
+test('modelsOf:modelSummaryList → [{name,tokens}] tokens 降序;缺失返回 []', () => {
+  const mu = {
+    totalUsage: { modelSummaryList: [
+      { modelName: 'GLM-5.3', totalTokens: 100 },
+      { modelName: 'GLM-5.3-Flash', totalTokens: 900 },
+      { modelName: 'GLM-5.3-FlashX', totalTokens: 500 },
+    ] },
+  };
+  assert.deepEqual(modelsOf(mu), [
+    { name: 'GLM-5.3-Flash', tokens: 900 },
+    { name: 'GLM-5.3-FlashX', tokens: 500 },
+    { name: 'GLM-5.3', tokens: 100 },
+  ]);
+  assert.deepEqual(modelsOf(null), []);
+  assert.deepEqual(modelsOf({ totalUsage: {} }), []);
+});
+
+test('weeklyResetAtOf:unit 6 的 TOKENS_LIMIT → nextResetTime;缺失/畸形 0', () => {
+  assert.equal(weeklyResetAtOf(REAL_QUOTA), 1789553043993);
+  assert.equal(weeklyResetAtOf({ limits: [{ type: 'TIME_LIMIT', unit: 5, nextResetTime: 1 }] }), 0);
+  assert.equal(weeklyResetAtOf({ limits: [] }), 0);
+  assert.equal(weeklyResetAtOf(null), 0);
+});
+
+test('mapQuotaToAccount:v0.2.12 弹框明细三字段默认空(由 fetchAccountData 填充)', () => {
+  const a = mapQuotaToAccount(REAL_QUOTA, 0);
+  assert.equal(a.dayUsage, null);
+  assert.deepEqual(a.modelsToday, []);
+  assert.deepEqual(a.modelsWeek, []);
 });
 
 test('countdown:天/小时/分钟组合;非正数返回空', () => {

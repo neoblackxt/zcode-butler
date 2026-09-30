@@ -8,7 +8,8 @@
  *   GET {origin}/api/monitor/usage/tool-usage    —— 当日 MCP 工具调用
  *
  * 与 zcode-usage 的差异:输出对齐 butler 协议(PROJECT.md §5)的 account 段;
- * 高峰拆分沿用小时序列求和(工作日 14:00-17:59 左闭右开),不单独发峰窗区间请求。
+ * 高峰拆分沿用小时序列求和(工作日 14:00-17:59 左闭右开),不单独发峰窗区间请求;
+ * v0.2.12 增周窗口模型明细查询(model-usage,周窗口 = 每周重置点 − 7 天 → 现在)。
  *
  * CLI:node usage.mjs [--json] [--key K --base U]
  */
@@ -17,7 +18,7 @@ import { pathToFileURL } from 'node:url';
 import {
   resolveCredential, makeGet, makeColorKit, padEndW, fmtNum, fmtTokens,
 } from './lib/api.mjs';
-import { ringOf, mcpRingOf } from './lib/protocol.mjs';
+import { ringOf, mcpRingOf, modelCardOf } from './lib/protocol.mjs';
 
 const argv = process.argv.slice(2);
 const asJson = argv.includes('--json');
@@ -97,6 +98,10 @@ export function mapQuotaToAccount(quota, nowMs) {
     weekly: null,
     mcpMonthly: null,
     peakNow: isPeakHourLabel(bjHourLabel(nowMs)),
+    // v0.2.12 弹框明细(由 fetchAccountData 依当日/周窗口响应填充)
+    dayUsage: null,
+    modelsToday: [],
+    modelsWeek: [],
   };
   for (const l of quota?.limits || []) {
     const pct = Number(l.percentage) || 0;
@@ -147,10 +152,29 @@ export function splitDayUsage(modelUsage) {
   };
 }
 
+/** model-usage 响应 → 每模型 token 列表 [{name,tokens}](tokens 降序;序列缺失返回 []) */
+export function modelsOf(modelUsage) {
+  const list = modelUsage?.totalUsage?.modelSummaryList;
+  if (!Array.isArray(list)) return [];
+  return list.map(modelCardOf)
+    .filter((m) => m.name)
+    .sort((a, b) => b.tokens - a.tokens);
+}
+
+/** quota → 每周环重置点(epoch ms;无每周环返回 0)。周窗口起点 = 重置点 − 7 天
+ *  (2026-09-30 实测:按此起点请求 model-usage,返回桶首与请求起点精确对齐) */
+export function weeklyResetAtOf(quota) {
+  for (const l of quota?.limits || []) {
+    if (l.type !== 'TIME_LIMIT' && Number(l.unit) === 6) return Number(l.nextResetTime) || 0;
+  }
+  return 0;
+}
+
 // ---------- 取数 ----------
 /**
- * 账号查询:三个接口,额度失败整体抛错;当日两个失败不影响额度(降级为 null)。
- * 返回 { account, raw: { quota, modelUsage, toolUsage, dayUsage } }。
+ * 账号查询:四个接口,额度失败整体抛错;当日/周窗口查询失败不影响额度(降级为 null/[])。
+ * 周窗口 = 每周环重置点 − 7 天 → 现在(7d 弹框「每模型 token」数据源,实测对齐)。
+ * 返回 { account, raw: { quota, modelUsage, toolUsage, weekUsage, dayUsage, toolsToday, ... } }。
  */
 export async function fetchAccountData({ timeoutMs = 10000, getFlag } = {}) {
   const cred = resolveCredential(getFlag || flagValue);
@@ -167,16 +191,26 @@ export async function fetchAccountData({ timeoutMs = 10000, getFlag } = {}) {
   const nowMs = Date.now();
   const qs = (startMs, endMs) => `?startTime=${encodeURIComponent(bjFmt(startMs))}&endTime=${encodeURIComponent(bjFmt(endMs))}`;
   const dayStart = bjDayStartMs(nowMs);
-  const [modelUsage, toolUsage] = await Promise.all([
+  const weeklyResetAt = weeklyResetAtOf(quota);
+  const weekStart = weeklyResetAt > 0 ? weeklyResetAt - 7 * 24 * 3600_000 : 0;
+  const [modelUsage, toolUsage, weekUsage] = await Promise.all([
     get('/api/monitor/usage/model-usage' + qs(dayStart, nowMs)).catch(() => null),
     get('/api/monitor/usage/tool-usage' + qs(dayStart, nowMs)).catch(() => null),
+    weekStart > 0 && weekStart < nowMs
+      ? get('/api/monitor/usage/model-usage' + qs(weekStart, nowMs)).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
+  const account = mapQuotaToAccount(quota, nowMs);
+  const dayUsage = splitDayUsage(modelUsage);
+  account.dayUsage = dayUsage;
+  account.modelsToday = modelsOf(modelUsage);
+  account.modelsWeek = modelsOf(weekUsage);
   return {
-    account: mapQuotaToAccount(quota, nowMs),
+    account,
     raw: {
-      quota, modelUsage, toolUsage,
-      dayUsage: splitDayUsage(modelUsage),
+      quota, modelUsage, toolUsage, weekUsage,
+      dayUsage,
       toolsToday: mapToolUsageToday(toolUsage),
       credFrom: cred.from,
       origin,
@@ -297,7 +331,8 @@ async function main() {
     if (asJson) {
       console.log(JSON.stringify({
         fetchedAt: new Date(nowMs).toISOString(),
-        account: { fiveHour: null, weekly: null, mcpMonthly: null, peakNow: false, level: '?' },
+        account: { fiveHour: null, weekly: null, mcpMonthly: null, peakNow: false,
+          dayUsage: null, modelsToday: [], modelsWeek: [], level: '?' },
         errors: [{ module: 'usage', message: e.message }],
       }, null, 2));
     } else {

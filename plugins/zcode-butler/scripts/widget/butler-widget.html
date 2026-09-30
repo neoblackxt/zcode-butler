@@ -358,10 +358,10 @@
      气泡体 = 四角圆角矩形主体 + 右侧直边锐角尖角(单条 SVG path,投影随形);
      主体四角保留圆角,尖角两腰为直线、顶点尖锐无弧度;
      全部尺寸以舞台像素 × --u 计,与侧栏随窗口高等比缩放。
-     几何:体宽 690 · 体高 548 · 尖角长 84 · 高 118 · 尖角顶点距面板左缘 ≈54
+     几何:体宽 690 · 体高 700(v0.6.0 自 548 加高容纳四分发密集内容,尖角仍垂直居中) · 尖角长 84 · 尖角顶点距面板左缘 ≈54
      v0.4.8:弹框整体等比例放大 30% —— 派生单位 --pu = --u × --pop-scale,
      本块所有尺寸/字号/间距/投影改按 --pu 计(设计稿原值一律不动);
-     气泡 path 的 viewBox 保持 780×548,由容器拉伸等比放大,无需重描坐标;
+     气泡 path 的 viewBox 保持 780×700,由容器拉伸等比放大,无需重描坐标;
      右缘(尖角侧)位置不变,气泡整体向左展开,宿主窗口同步加宽(ps1 winW) */
   .usage-pop {
     --pop-scale: 1.3;                                   /* 弹框放大倍率:本块唯一真相源 */
@@ -369,7 +369,7 @@
     position: absolute;
     left: 0; top: 0;
     width: calc(var(--pu, 0.5px) * 780);
-    height: calc(var(--pu, 0.5px) * 548);
+    height: calc(var(--pu, 0.5px) * 700);
     opacity: 0;
     transform: translateX(calc(var(--pu, 0.5px) * -14));
     transition: opacity 0.16s ease-out,
@@ -394,9 +394,10 @@
     left: 0; top: 0;
     width: calc(var(--pu, 0.5px) * 690);
     height: 100%;
-    padding: calc(var(--pu, 0.5px) * 38) calc(var(--pu, 0.5px) * 36) 0;
+    padding: calc(var(--pu, 0.5px) * 32) calc(var(--pu, 0.5px) * 36) calc(var(--pu, 0.5px) * 16);
     display: flex;
     flex-direction: column;
+    overflow: hidden;   /* 内容超气泡即裁切(正常数据不应触底,验收量 scrollHeight) */
   }
   .pop-head {
     display: flex;
@@ -422,8 +423,8 @@
     align-items: baseline;
     margin-top: calc(var(--pu, 0.5px) * 26);
   }
-  .pop-row.first  { margin-top: calc(var(--pu, 0.5px) * 30); }
-  .pop-row.tight  { margin-top: calc(var(--pu, 0.5px) * 8); }
+  .pop-row.first  { margin-top: calc(var(--pu, 0.5px) * 24); }
+  .pop-row.tight  { margin-top: calc(var(--pu, 0.5px) * 6); }
   .pop-label {
     font-size: calc(var(--pu, 0.5px) * 31);
     font-weight: 600;
@@ -438,7 +439,7 @@
     height: calc(var(--pu, 0.5px) * 13);
     border-radius: calc(var(--pu, 0.5px) * 6.5);
     background: #3a3a3a;
-    margin: calc(var(--pu, 0.5px) * 15) 0;
+    margin: calc(var(--pu, 0.5px) * 9) 0 calc(var(--pu, 0.5px) * 7);
     overflow: hidden;
   }
   .pop-bar i { display: block; height: 100%; border-radius: inherit; }
@@ -451,7 +452,79 @@
   .pop-divider {
     height: calc(var(--pu, 0.5px) * 1.5);
     background: #262626;
-    margin: calc(var(--pu, 0.5px) * 26) 0 calc(var(--pu, 0.5px) * 12);
+    margin: calc(var(--pu, 0.5px) * 14) 0 calc(var(--pu, 0.5px) * 7);
+  }
+
+  /* ─── v0.6.0 弹框四分发内容组件(全部按 --pu 计;紧凑行距容纳 5h 密集版) ── */
+  .pop-row.pop-sec { margin-top: calc(var(--pu, 0.5px) * 12); }
+  .pop-pct {
+    font-size: calc(var(--pu, 0.5px) * 33);
+    font-weight: 700;
+    letter-spacing: 0.005em;
+    color: #fafafa;
+    font-variant-numeric: tabular-nums;
+  }
+  .pop-val {
+    font-size: calc(var(--pu, 0.5px) * 28);
+    font-weight: 600;
+    letter-spacing: 0.005em;
+    color: #fafafa;
+    font-variant-numeric: tabular-nums;
+  }
+  .pop-val.sub  { font-size: calc(var(--pu, 0.5px) * 25); color: #d9d9d9; font-weight: 500; }
+  .pop-label.sub { font-size: calc(var(--pu, 0.5px) * 25); color: #c3c3c3; font-weight: 500; }
+  .pop-note {
+    font-size: calc(var(--pu, 0.5px) * 23);
+    color: #8d8d8d;
+    margin-top: calc(var(--pu, 0.5px) * 4);
+    letter-spacing: 0.01em;
+  }
+  .pop-note.lead { margin-top: calc(var(--pu, 0.5px) * 14); }
+  .pop-note.err  { color: var(--ring-low); }
+  .pop-tag {
+    font-size: calc(var(--pu, 0.5px) * 25);
+    font-weight: 600;
+    color: #b9b9b9;
+    font-variant-numeric: tabular-nums;
+  }
+  .pop-tag.hot { color: #e07442; }   /* 高峰进行中:与 5h 环光晕同源橙 */
+  .pop-bar.slim {
+    height: calc(var(--pu, 0.5px) * 9);
+    border-radius: calc(var(--pu, 0.5px) * 4.5);
+    margin: calc(var(--pu, 0.5px) * 8) 0 calc(var(--pu, 0.5px) * 2);
+  }
+  .pop-models {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: calc(var(--pu, 0.5px) * 18);
+    row-gap: calc(var(--pu, 0.5px) * 4);
+    margin-top: calc(var(--pu, 0.5px) * 4);
+  }
+  .pop-models .pop-mrow {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    min-width: 0;
+  }
+  .pop-models .m-name {
+    font-size: calc(var(--pu, 0.5px) * 23);
+    font-weight: 500;
+    color: #e6e6e6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pop-models .m-tok {
+    font-size: calc(var(--pu, 0.5px) * 23);
+    color: #9f9f9f;
+    font-variant-numeric: tabular-nums;
+    flex: none;
+  }
+  .pop-key { margin-top: calc(var(--pu, 0.5px) * 13); }
+  .pop-key .k-meta {
+    font-size: calc(var(--pu, 0.5px) * 23);
+    color: #8f8f8f;
+    font-variant-numeric: tabular-nums;
   }
 
   /* 收起时环详情弹窗一并隐去(环已出窗,不应残留) */
@@ -567,11 +640,12 @@
 
   </div>
 
-  <!-- 环详情弹窗:悬停任一显示环时浮现,尖角指向该环;内容 1:1 对齐参考图 -->
+  <!-- 环详情弹窗:悬停任一显示环时浮现,尖角指向该环;v0.6.0 四分发内容(5h/7d/mcp/key)
+       由 renderPop(kind) 动态渲染进 #popContent,数据 = butlerData(数据桥/快照/?demo=1) -->
   <div class="usage-pop" id="usagePop" data-od-id="usage-popup" aria-hidden="true">
-    <svg class="pop-bubble" viewBox="0 0 780 548" aria-hidden="true">
+    <svg class="pop-bubble" viewBox="0 0 780 700" aria-hidden="true">
       <path fill="#0a0a0a"
-            d="M34,0 H655.8 Q689.8,0 689.8,34 V215 L774,274 L689.8,333 V514 Q689.8,548 655.8,548 H34 Q0,548 0,514 V34 Q0,0 34,0 Z"/>
+            d="M34,0 H655.8 Q689.8,0 689.8,34 V275 L774,350 L689.8,425 V657 Q689.8,700 655.8,700 H34 Q0,700 0,657 V34 Q0,0 34,0 Z"/>
     </svg>
     <div class="pop-body">
       <header class="pop-head" data-od-id="popup-head">
@@ -580,29 +654,9 @@
             <g id="logoRays" stroke="#f5f5f5" stroke-width="3.2" stroke-linecap="round"></g>
           </svg>
         </span>
-        <h2 class="pop-title" data-od-id="popup-title">Claude Usage</h2>
+        <h2 class="pop-title" id="popTitle" data-od-id="popup-title">用量详情</h2>
       </header>
-      <div class="pop-row first" data-od-id="popup-row-session">
-        <span class="pop-label">Current session</span>
-        <span class="pop-sub">Resets Mon 1:09 AM</span>
-      </div>
-      <div class="pop-bar" data-od-id="popup-bar-session"><i style="width: 41%; background: var(--arc-openai);"></i></div>
-      <div class="pop-used" data-od-id="popup-used-session">41% Used</div>
-      <div class="pop-row" data-od-id="popup-row-models">
-        <span class="pop-label">All models</span>
-        <span class="pop-sub">Resets Wed 11:59 PM</span>
-      </div>
-      <div class="pop-bar" data-od-id="popup-bar-models"><i style="width: 60%; background: var(--arc-perplexity);"></i></div>
-      <div class="pop-used" data-od-id="popup-used-models">60% Used</div>
-      <div class="pop-divider" data-od-id="popup-divider"></div>
-      <div class="pop-row" style="margin-top: 0;" data-od-id="popup-row-fe">
-        <span class="pop-label">usage-notch-fe</span>
-        <span class="pop-sub">idle</span>
-      </div>
-      <div class="pop-row tight" data-od-id="popup-row-terminal">
-        <span class="pop-sub">Terminal · usage-notch</span>
-        <span class="pop-sub">4 min</span>
-      </div>
+      <div id="popContent" data-od-id="popup-content"></div>
     </div>
   </div>
 </main>
@@ -798,7 +852,10 @@
     gearBtn.setAttribute('aria-expanded', String(!minimized));
     if (minimized) {
       var p = document.getElementById('usagePop');
-      if (p) p.classList.remove('on');   /* 环已出窗,弹窗不留残影 */
+      if (p) {   /* 环已出窗,弹窗不留残影 */
+        p.classList.remove('on');
+        p.setAttribute('aria-hidden', 'true');
+      }
       if (toastCard && toastCard.classList.contains('on')) butlerToastHide(false);
     }
     butlerRefreshBadge();
@@ -843,10 +900,227 @@
     setInterval(apply, 60000);
   })();
 
+  /* ── 弹框内容四分发(v0.6.0):5h / 7d / mcp / key 各自渲染进 #popContent ──
+     数据 = butlerData(宿主 data 推送 → localStorage 快照 → ?demo=1 种子);
+     弹窗纯展示(pointer-events:none,不进形状掩码),内容改动零桥面影响;
+     高峰进度条按北京时间显式折算(与 usage.mjs 同口径,不吃本机时区) */
+  var butlerData = null;
+  var popKind = null;
+  var POP_TITLES = { '5h': '5 小时额度池', '7d': '每周额度', mcp: 'MCP 工具调用', key: 'Key 月度用量' };
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+  /* token 格式与 lib/api.mjs 同口径:亿(2 位小数)/ 万(1 位小数)/ 千分位 */
+  function fmtTok(n) {
+    n = Number(n) || 0;
+    if (n >= 1e8) return (n / 1e8).toFixed(2) + ' 亿';
+    if (n >= 1e4) return (n / 1e4).toFixed(1) + ' 万';
+    return n.toLocaleString('zh-CN');
+  }
+  function fmtCnt(n) { return (Number(n) || 0).toLocaleString('zh-CN'); }
+  function fmtClock(ts) {
+    var d = new Date(Number(ts) || 0), z = function (v) { return (v < 10 ? '0' : '') + v; };
+    return (d.getMonth() + 1) + '-' + z(d.getDate()) + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+  }
+  function fmtLeft(ms) {
+    ms = Number(ms) || 0;
+    if (ms <= 0) return '即将重置';
+    var min = Math.round(ms / 60000),
+        d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60, parts = [];
+    if (d) parts.push(d + ' 天');
+    if (h) parts.push(h + ' 小时');
+    if (m || (!d && !h)) parts.push(m + ' 分钟');
+    return '还剩 ' + parts.join(' ');
+  }
+  function ringColor(p) {
+    return p <= 60 ? 'var(--ring-ok)' : p <= 80 ? 'var(--ring-warn)' : 'var(--ring-low)';
+  }
+  function barHtml(pct, color, slim) {
+    var p = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+    return '<div class="pop-bar' + (slim ? ' slim' : '') + '"><i style="width:' + p
+      + '%;background:' + color + '"></i></div>';
+  }
+  function modelSum(models) {
+    var s = 0;
+    (models || []).forEach(function (m) { s += Number(m.tokens) || 0; });
+    return s;
+  }
+  function modelRowsHtml(models) {
+    return '<div class="pop-models">' + (models || []).map(function (m) {
+      return '<div class="pop-mrow"><span class="m-name">' + esc(m.name)
+        + '</span><span class="m-tok">' + fmtTok(m.tokens) + '</span></div>';
+    }).join('') + '</div>';
+  }
+  /* 模型清单头行右侧文案:合计 + 超出封顶(6)的省略计数 */
+  function modelsHeadValue(all) {
+    var list = all || [];
+    if (!list.length) return '暂无数据';
+    var extra = list.length - Math.min(list.length, 6);
+    return '合计 ' + fmtTok(modelSum(list)) + (extra > 0 ? ' · 另 ' + extra + ' 个' : '');
+  }
+
+  /* 高峰期状态:工作日 14:00–18:00(北京时间纯 UTC 运算);进行中给进度与剩余,否则给下个开始点 */
+  var BJ_OFFSET_MS = 8 * 3600000;
+  var WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  function peakState() {
+    var d = new Date(Date.now() + BJ_OFFSET_MS);
+    var dow = d.getUTCDay(), min = d.getUTCHours() * 60 + d.getUTCMinutes();
+    var workday = dow >= 1 && dow <= 5;
+    var inPeak = workday && min >= 14 * 60 && min < 18 * 60;
+    var nextLabel;
+    if (workday && min < 14 * 60) nextLabel = '今日 14:00';
+    else {
+      var add = 1, nd = (dow + 1) % 7;
+      while (add < 7 && (nd < 1 || nd > 5)) { add += 1; nd = (dow + add) % 7; }
+      nextLabel = (add === 1 ? '明日' : WEEKDAY_NAMES[nd]) + ' 14:00';
+    }
+    return {
+      inPeak: inPeak,
+      pct: inPeak ? Math.round((min - 14 * 60) / 240 * 100) : 0,
+      leftMin: inPeak ? 18 * 60 - min : 0,
+      nextLabel: nextLabel,
+    };
+  }
+  function peakLeftText(min) {
+    if (min >= 60) {
+      var h = Math.floor(min / 60), m = min % 60;
+      return '还剩 ' + h + ' 小时' + (m ? ' ' + m + ' 分' : '');
+    }
+    return '还剩 ' + min + ' 分钟';
+  }
+
+  function renderPop(kind) {
+    var body = document.getElementById('popContent');
+    var titleEl = document.getElementById('popTitle');
+    if (!body || !titleEl) return;
+    popKind = kind;
+    titleEl.textContent = POP_TITLES[kind] || '用量详情';
+    var d = butlerData || {}, a = d.account || {};
+    body.innerHTML = kind === '5h' ? pop5hHtml(a)
+      : kind === '7d' ? pop7dHtml(a)
+      : kind === 'mcp' ? popMcpHtml(a)
+      : popKeyHtml(d.keys || []);
+  }
+
+  /* 5h 弹框:额度池进度条 + 重置时间 + 高峰提醒(进度条)+ 当日总量/高峰/非高峰 + 模型一览 */
+  function pop5hHtml(a) {
+    var h = '', r = a.fiveHour;
+    h += '<div class="pop-row first"><span class="pop-label">5 小时额度池</span><span class="pop-pct">'
+      + (r ? Math.round(r.pct) + '%' : '—') + '</span></div>';
+    h += barHtml(r ? r.pct : 0, r ? ringColor(r.pct) : '#3a3a3a');
+    h += '<div class="pop-note">' + (r && r.resetAt > 0
+      ? fmtClock(r.resetAt) + ' 重置 · ' + fmtLeft(r.resetAt - Date.now()) : '重置时间未知') + '</div>';
+    var pk = peakState();
+    h += '<div class="pop-row pop-sec"><span class="pop-label">高峰期(工作日 14–18 时)</span><span class="pop-tag'
+      + (pk.inPeak ? ' hot' : '') + '">'
+      + (pk.inPeak ? '进行中 · ' + peakLeftText(pk.leftMin) : pk.nextLabel) + '</span></div>';
+    h += '<div class="pop-bar slim"><i style="width:' + pk.pct + '%;background:#e07442"></i></div>';
+    h += '<div class="pop-divider"></div>';
+    var du = a.dayUsage;
+    h += '<div class="pop-row tight"><span class="pop-label">当日使用量</span><span class="pop-val">'
+      + (du ? fmtCnt(du.total.calls) + ' 次 · ' + fmtTok(du.total.tokens) + ' tokens' : '—') + '</span></div>';
+    h += '<div class="pop-row tight"><span class="pop-label sub">高峰期使用量</span><span class="pop-val sub">'
+      + (du ? fmtCnt(du.peak.calls) + ' 次 · ' + fmtTok(du.peak.tokens) : '—') + '</span></div>';
+    h += '<div class="pop-row tight"><span class="pop-label sub">非高峰期使用量</span><span class="pop-val sub">'
+      + (du ? fmtCnt(du.offPeak.calls) + ' 次 · ' + fmtTok(du.offPeak.tokens) : '—') + '</span></div>';
+    h += '<div class="pop-divider"></div>';
+    var ms = (a.modelsToday || []).slice(0, 6);
+    h += '<div class="pop-row tight"><span class="pop-label">当日模型用量一览</span><span class="pop-val sub">'
+      + modelsHeadValue(a.modelsToday) + '</span></div>';
+    h += modelRowsHtml(ms);
+    return h;
+  }
+
+  /* 7d 弹框:每周额度进度条 + 本周每模型 token 总量 */
+  function pop7dHtml(a) {
+    var h = '', r = a.weekly;
+    h += '<div class="pop-row first"><span class="pop-label">每周额度</span><span class="pop-pct">'
+      + (r ? Math.round(r.pct) + '%' : '—') + '</span></div>';
+    h += barHtml(r ? r.pct : 0, r ? ringColor(r.pct) : '#3a3a3a');
+    h += '<div class="pop-note">' + (r && r.resetAt > 0
+      ? fmtClock(r.resetAt) + ' 重置 · ' + fmtLeft(r.resetAt - Date.now()) : '重置时间未知') + '</div>';
+    h += '<div class="pop-divider"></div>';
+    var ms = (a.modelsWeek || []).slice(0, 6);
+    h += '<div class="pop-row tight"><span class="pop-label">每个模型使用总量</span><span class="pop-val sub">'
+      + modelsHeadValue(a.modelsWeek) + '</span></div>';
+    h += modelRowsHtml(ms);
+    h += '<div class="pop-note lead">窗口:本周重置点 − 7 天 → 现在</div>';
+    return h;
+  }
+
+  /* mcp 弹框:月度总量进度条 + 联网搜索/网页读取/Zread 各自耗量(配色对应环弧色族) */
+  function popMcpHtml(a) {
+    var h = '', r = a.mcpMonthly;
+    h += '<div class="pop-row first"><span class="pop-label">MCP 总使用量</span><span class="pop-pct">'
+      + (r ? Math.round(r.pct) + '%' : '—') + '</span></div>';
+    h += barHtml(r ? r.pct : 0, r ? ringColor(r.pct) : '#3a3a3a');
+    var bits = [];
+    if (r && r.limit > 0) {
+      bits.push('已用 ' + fmtCnt(r.used) + ' / ' + fmtCnt(r.limit) + ' 次 · 剩余 '
+        + fmtCnt(Math.max(0, r.limit - r.used)));
+    }
+    if (r && r.resetAt > 0) bits.push(fmtClock(r.resetAt) + ' 重置');
+    h += '<div class="pop-note">' + (bits.length ? bits.join(' · ') : '暂无数据') + '</div>';
+    h += '<div class="pop-divider"></div>';
+    var t = (r && r.tools) || {};
+    var lim = r && r.limit > 0 ? r.limit : 0;
+    h += toolRowHtml('联网搜索', t.webSearch, lim, 'var(--arc-openai)');
+    h += toolRowHtml('网页读取', t.webReader, lim, 'var(--arc-perplexity)');
+    h += toolRowHtml('Zread', t.zread, lim, 'var(--arc-claude)');
+    return h;
+  }
+  function toolRowHtml(name, used, limit, color) {
+    used = Number(used) || 0;
+    var pct = limit > 0 ? Math.min(100, Math.round(used / limit * 100)) : (used > 0 ? 100 : 0);
+    return '<div class="pop-row tight"><span class="pop-label">' + name + '</span><span class="pop-val">'
+      + fmtCnt(used) + ' 次' + (limit > 0 ? ' · 占 ' + pct + '%' : '') + '</span></div>'
+      + '<div class="pop-bar slim"><i style="width:' + pct + '%;background:' + color + '"></i></div>';
+  }
+
+  /* key 弹框:全部 Key 卡(名称/尾号/档位/国内·海外 + 水位条 + 加权用量明细;
+     智谱 Coding Plan 专用,provider bigmodel=国内 / zai=海外) */
+  function popKeyHtml(keys) {
+    var h = '';
+    h += '<div class="pop-note lead">智谱 Coding Plan Key · 国内 / 海外 · 加权 = 非高峰×1 + 高峰×3</div>';
+    if (!keys || !keys.length) {
+      h += '<div class="pop-row tight"><span class="pop-label">未配置监控 Key</span>'
+        + '<span class="pop-val sub">添加方式见 /butler:watch</span></div>';
+      return h;
+    }
+    var CAP = 5;
+    keys.slice(0, CAP).forEach(function (k) {
+      h += '<div class="pop-key">';
+      h += '<div class="pop-row tight"><span class="pop-label">' + esc(k.name) + ' ' + esc(k.tail)
+        + '</span><span class="k-meta">' + (k.status === 'error' ? '查询失败'
+        : '[' + esc(k.tier || '未知') + '] · ' + (k.provider === 'zai' ? '海外' : '国内')) + '</span></div>';
+      if (k.status === 'error') {
+        h += '<div class="pop-note err">' + esc(k.error || '查询失败') + '</div>';
+      } else {
+        h += barHtml(k.pct, ringColor(k.pct), true);
+        h += '<div class="pop-note">' + fmtTok(k.usedWeighted) + ' / ' + fmtTok(k.quota)
+          + ' · 高峰 ' + fmtTok(k.peak) + ' · 非高峰 ' + fmtTok(k.offpeak)
+          + (k.resetDate ? ' · ' + String(k.resetDate).slice(5) + ' 重置' : '') + '</div>';
+      }
+      h += '</div>';
+    });
+    if (keys.length > CAP) {
+      h += '<div class="pop-note">…另有 ' + (keys.length - CAP) + ' 把,完整列表见 /butler:watch</div>';
+    }
+    return h;
+  }
+
+  /* 高峰进度条走表:5h 弹框常显时每 30s 刷新(倒计时/进度推进) */
+  setInterval(function () {
+    var p = document.getElementById('usagePop');
+    if (p && p.classList.contains('on') && popKind === '5h') renderPop('5h');
+  }, 30000);
+
   /* ── 环详情弹窗:悬停显示环 → 弹窗左侧浮现,尖角指向该环中心。
       尺寸/间距全部按舞台像素等比(--u = 窗口高 / 2025),外框再乘 CSS --pop-scale
       (v0.4.8 等比例放大 30%);尖角右缘锚点不变,气泡向左展开;
-      ?pop=1(或 #pop)可让弹窗常显在 5h 环旁,便于核对与截图 ── */
+      ?pop=5h|7d|mcp|key 让对应弹窗常显,便于核对与截图(v0.6.0 起四分发) ── */
   var FORCE_POP_FOR_PREVIEW = false;   /* 渲染核验用,默认关闭 */
   (function () {
     var pop = document.getElementById('usagePop');
@@ -856,7 +1130,7 @@
     /* 倍率唯一真相源 = CSS .usage-pop 的 --pop-scale;读不到回落 1
        (右缘锚点不变,弹框退回设计稿原尺寸,不会越出宿主窗口) */
     var POP_SCALE = parseFloat(getComputedStyle(pop).getPropertyValue('--pop-scale')) || 1;
-    var POP_W = 780 * POP_SCALE, POP_H = 548 * POP_SCALE;  /* 舞台px:含尖角的弹窗整体外框 */
+    var POP_W = 780 * POP_SCALE, POP_H = 700 * POP_SCALE;  /* 舞台px:含尖角的弹窗整体外框(v0.6.0 高 548→700) */
     var showT = 0, hideT = 0, active = null;
     function place(meter) {
       var s = window.innerHeight / 2025, r = meter.getBoundingClientRect();
@@ -872,31 +1146,42 @@
     function show(meter) {
       clearTimeout(hideT);
       active = meter;
+      /* v0.6.0 四分发:按 meter 的 data-od-id 渲染对应弹框内容 */
+      var kind = String(meter.getAttribute('data-od-id') || '').replace(/^meter-/, '');
+      if (POP_TITLES[kind]) renderPop(kind);
       if (pop.classList.contains('on')) { place(meter); return; }  /* 环间滑动不重播 */
       clearTimeout(showT);
-      showT = setTimeout(function () { place(meter); pop.classList.add('on'); }, 90);
+      showT = setTimeout(function () {
+        place(meter);
+        pop.classList.add('on');
+        pop.setAttribute('aria-hidden', 'false');
+      }, 90);
     }
     function hide() {
       active = null;
       clearTimeout(showT);
       clearTimeout(hideT);
       hideT = setTimeout(function () {
-        if (!FORCE_POP_FOR_PREVIEW && !/[?&]pop=1/.test(location.search) && !/pop/.test(location.hash)) {
+        if (!FORCE_POP_FOR_PREVIEW && !/[?&]pop=/.test(location.search) && !/pop/.test(location.hash)) {
           pop.classList.remove('on');
+          pop.setAttribute('aria-hidden', 'true');
         }
       }, 70);
     }
     meters.forEach(function (m) {
-      /* 判定范围 = 整个圆:环本体 + 环内 5h/mcp 字样 + 下方百分比均不丢焦;
-         后续四环弹窗内容各不相同时,在 show(m) 里按 meter 分发对应内容即可 */
+      /* 判定范围 = 整个圆:环本体 + 环内 5h/mcp 字样 + 下方百分比均不丢焦 */
       m.addEventListener('mouseenter', function () { show(m); });
       m.addEventListener('mouseleave', hide);
     });
     window.addEventListener('resize', function () {
       if (active || FORCE_POP_FOR_PREVIEW) place(active || meters[0]);
     }, { passive: true });
-    if (FORCE_POP_FOR_PREVIEW || /[?&]pop=1/.test(location.search) || /pop/.test(location.hash)) {
-      requestAnimationFrame(function () { place(meters[0]); pop.classList.add('on'); });
+    var popQ = (location.search.match(/[?&]pop=([a-z0-9]+)/) || [])[1];
+    if (FORCE_POP_FOR_PREVIEW || popQ || /[?&]pop=1/.test(location.search) || /pop/.test(location.hash)) {
+      var kind0 = POP_TITLES[popQ] ? popQ : '5h';
+      var meter0 = document.querySelector('[data-od-id="meter-' + kind0 + '"]') || meters[0];
+      active = meter0;   /* 预览常显时记为活动环:resize 重定位走 place 分支 */
+      requestAnimationFrame(function () { renderPop(kind0); place(meter0); pop.classList.add('on'); });
     }
   })();
 
@@ -916,9 +1201,10 @@
     }
   })();
 
-  /* ── 数据桥:宿主(WebView2 壳)PostWebMessageAsJson → 四环 + Key ──
-      协议 = status.mjs --json:account.fiveHour/weekly/mcpMonthly.pct + keys[](pct 降序)。
-      浏览器直开(无宿主)默认空态,调 UI 加 ?demo=1 应用设计稿示例值。 */
+  /* ── 数据桥:宿主(WebView2 壳)PostWebMessageAsJson → 四环 + Key + 弹框内容 ──
+      协议 = status.mjs --json:account.fiveHour/weekly/mcpMonthly.pct + 弹框明细三字段
+      (dayUsage / modelsToday / modelsWeek,v0.6.0)+ keys[](pct 降序)。
+      浏览器直开(无宿主)默认空态,调 UI 加 ?demo=1 应用示例值。 */
   var RING_C = 2 * Math.PI * 61;   /* 383.27,与参考图一致 */
   function butlerSetRing(odId, pct, hasData) {
     var meter = document.querySelector('[data-od-id="meter-' + odId + '"]');
@@ -941,6 +1227,7 @@
   }
   function butlerApply(d) {
     if (!d) return;
+    butlerData = d;   /* 弹框四分发数据源(整包留存,renderPop 按 kind 取段) */
     var a = d.account || {};
     butlerSetRing('5h',  a.fiveHour    ? a.fiveHour.pct    : null, !!a.fiveHour);
     butlerSetRing('7d',  a.weekly      ? a.weekly.pct      : null, !!a.weekly);
@@ -949,19 +1236,57 @@
     var keys = (d.keys || []).filter(function (k) { return k.status !== 'error'; });
     var top = keys.length ? keys[0] : null;
     butlerSetRing('key', top ? top.pct : null, !!top);
+    /* 悬停中的弹窗随新数据即时刷新(refresh 周期 110min,常态无感) */
+    var pop = document.getElementById('usagePop');
+    if (pop && pop.classList.contains('on') && popKind) renderPop(popKind);
   }
   /* ?key=NN:强制 Key 环用量预览(三档水位色核验用;宿主 file:// 无查询串,不受影响) */
   (function () {
     var m = location.search.match(/[?&]key=(\d+(?:\.\d+)?)/);
     if (m) butlerSetRing('key', parseFloat(m[1]), true);
   })();
-  /* 首帧数据来源(v0.2.2):?demo=1 → 设计稿示例值(调 UI 用);否则 localStorage 快照
+  /* 首帧数据来源(v0.2.2):?demo=1 → 四环 + 四弹框全量示例(调 UI 用);否则 localStorage 快照
      (上次宿主推送的真值)→ 冷启动首帧即真实值,消灭「设计稿 73% 闪一下才变正常」;
      两者皆无 → 保持静态空态(—)。真值到达后覆盖并回写快照。 */
   (function () {
     if (location.search.match(/[?&]demo=1/)) {
-      butlerSetRing('5h', 73, true); butlerSetRing('7d', 21, true);
-      butlerSetRing('mcp', 52, true); butlerSetRing('key', 34, true);
+      var now = Date.now();
+      butlerApply({
+        account: {
+          fiveHour: { pct: 73, used: 0, limit: 0, resetAt: now + 2.6 * 3600000, status: 'ok' },
+          weekly: { pct: 21, used: 0, limit: 0, resetAt: now + 5.5 * 86400000, status: 'ok' },
+          mcpMonthly: { pct: 52, used: 520, limit: 1000, resetAt: now + 26 * 86400000, status: 'ok',
+            tools: { webSearch: 412, webReader: 36, zread: 72 } },
+          peakNow: true,
+          level: 'PRO',
+          dayUsage: {
+            total: { calls: 695, tokens: 146582481 },
+            peak: { calls: 122, tokens: 23002123 },
+            offPeak: { calls: 573, tokens: 123580358 },
+          },
+          modelsToday: [
+            { name: 'GLM-5.3', tokens: 145822480 },
+            { name: 'GLM-5.3-FlashX', tokens: 626009 },
+            { name: 'GLM-5.3-Flash', tokens: 133992 },
+          ],
+          modelsWeek: [
+            { name: 'GLM-5.3', tokens: 284443965 },
+            { name: 'GLM-5.3-FlashX', tokens: 13467857 },
+            { name: 'GLM-5.3-Flash', tokens: 1121028 },
+          ],
+        },
+        keys: [
+          { name: 'key-1', tail: '····jb58', tier: 'PRO', provider: 'bigmodel', pct: 76,
+            usedWeighted: 1333000000, quota: 1750000000, peak: 610000000, offpeak: 260000000,
+            resetDate: '2026-10-01', status: 'ok' },
+          { name: 'key-2', tail: '····kJqT', tier: 'PRO', provider: 'bigmodel', pct: 0,
+            usedWeighted: 0, quota: 1750000000, peak: 0, offpeak: 0,
+            resetDate: '2026-10-01', status: 'ok' },
+          { name: '海外备', tail: '····Zz9', tier: 'MAX', provider: 'zai', pct: 41,
+            usedWeighted: 720000000, quota: 1750000000, peak: 120000000, offpeak: 360000000,
+            resetDate: '2026-10-01', status: 'ok' },
+        ],
+      });
       return;
     }
     try {
