@@ -1816,24 +1816,26 @@
   }
   /* ── 眼睛表情引擎(v0.6.12 单瞳重构):用户定稿「整个大黑圆=眼球,白圈=瞳孔」——
      眼睛即按钮本体:黑盘 r76.5 为眼球(原生元素,不动),白圈(瞳)成为独立可动层
-     #pupil(r20.6 圆片 = 原镜片环的等视重),效果=驱动瞳孔在眼内移动/缩放/变形,
-     眼皮(黑盘上的遮罩弧)负责闭合成度。20 种眼神随机触发,间隔 2.6-6.8s,
-     不紧邻重复;展开态/不可见不触发;reduced-motion 禁用;页面隐藏 rAF 暂停自愈。
+     #pupil,效果=驱动瞳孔在眼内移动/缩放/变形,眼皮(黑盘上的遮罩弧)负责闭合成度。
+     瞳尺寸 v0.6.13 补:回原镜片环真值 r30.9×stroke8.1(用户"之前瞳孔很大"——
+     git 实证:原始环 30.9>v0.6.12 实心点 20.6>初改环 14,曾缩过头),变形效果随 PR 缩放。
+     21 种眼神随机触发,间隔 2.6-6.8s,不紧邻重复;展开态/不可见不触发;
+     reduced-motion 禁用;页面隐藏 rAF 暂停自愈。
      全部变换走 SVG 属性(JS 侧),与 CSS 显隐契约零冲突;调试钩子 window.__eyeFx。 */
   (function () {
     var host = document.getElementById('eyeG');
     if (!host) return;
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     var NS = 'http://www.w3.org/2000/svg';
-    var CX = 96.5, CY = 97, PR = 20.6;          /* 眼心 / 瞳半径(=原环 r30.9×0.667 视重) */
+    var CX = 96.5, CY = 97, PR = 30.9;         /* 眼心 / 瞳半径(v0.6.13 补:回原镜片环真值) */
     var MAXOFF = 76.5 - PR - 5;                 /* 瞳心活动限界(留 5 边距,贴边即瞪视) */
     /* 层:瞳基片(白圆环——用户勘误:不要实心白圆点)+ 瞳变形 path(星/螺旋/心/怒,
        描边轮廓风与圆环一致)+ 上眼皮遮罩 */
     var fxLayer = el('g', {});
     host.insertBefore(fxLayer, host.firstChild);
     var pupil = el('g', { transform: 'translate(' + CX + ' ' + CY + ')' });
-    var pDot = el('circle', { r: 14, fill: 'none', stroke: 'var(--icon)', 'stroke-width': 8 });
-    var pFx = el('path', { fill: 'none', stroke: 'var(--icon)', 'stroke-width': 6.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: 0 });
+    var pDot = el('circle', { r: PR, fill: 'none', stroke: 'var(--icon)', 'stroke-width': 8.1 });
+    var pFx = el('path', { fill: 'none', stroke: 'var(--icon)', 'stroke-width': 8.1, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: 0 });
     pupil.appendChild(pDot); pupil.appendChild(pFx);
     host.appendChild(pupil);
     var lid = el('path', { d: lidD(0), fill: 'var(--panel)', opacity: 0 });
