@@ -1,6 +1,14 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
-# 码管家桌面悬浮窗 v0.6.8(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# 码管家桌面悬浮窗 v0.6.9(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# v0.6.9(HTML 侧,宿主零改动):深色轮廓方案矩阵扩为七案 + 本页即选型网页——
+#   ?edge= 任一值进入预览态:按键 1-7 切方案(hair/none/glow/lift/rainbow/stars/
+#   input)、T 切 ZCode 明暗背景模拟、HUD 显当前案;宿主 file:// 无查询串永不进入。
+#   新三案:rainbow=彩虹柔光(@property 注册角度变量,双层 drop-shadow 色相 6s 环流);
+#   stars=星空粒子(沿面板轮廓波浪来回的白色粒子 + 每 0.5s 外逸消散星屑,rAF 引擎);
+#   input=深色下底色=ZCode 输入框 #2b2b2b(源码链路 ai-elements/prompt-input →
+#   ui/input-group 的 bg-input 体系,zai-dark --color-input;实采像素三点 43,43,43
+#   一致双证;环轨道随提亮至 zai tag #363636)。生产默认仍 hair(v0.6.8)。
 # v0.6.8(HTML 侧,宿主零改动):深色主题轮廓——纯黑表面(面板/镜泡/弹框气泡/
 #   通知卡)在 ZCode 深色主题(#161616 背景)下无轮廓;取 zai-org/ZCode
 #   packages/ui/src/styles.css .theme-zai-dark 的表面描边约定 --color-border =

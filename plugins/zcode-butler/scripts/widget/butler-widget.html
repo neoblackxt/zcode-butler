@@ -104,17 +104,43 @@
   /* ?edge= 方案预览变体(选型用,默认 hair=上规则;详见 ?edge= 处 JS 注释):
      glow = 白色柔光边缘替代描边(弹框卡仍留 hair——卡片类 ZCode 亦用描边);
      lift = 表面色阶方案:面板/镜泡底色抬至 zai-dark --color-panel #202020
-     (弹框/通知卡为字面色 #0a0a0a,预览变体不覆盖——全量皮肤属方案 B 工作量) */
+     (弹框/通知卡为字面色 #0a0a0a,预览变体不覆盖——全量皮肤属方案 B 工作量);
+     rainbow = 彩虹柔光(@property 注册角度变量后色相可动画,双层 drop-shadow 流转);
+     input = 深色下底色=ZCode 输入框:源码链路 ai-elements/prompt-input →
+     ui/input-group(border-input + bg-input/20|/30 内层,外壳实色),zai-dark
+     --color-input = #2b2b2b(实采像素三点 43,43,43 一致);环轨道随之提亮
+     (#2e2e2e 在 #2b2b2b 上不可辨,取 zai-dark tag 色 #363636) */
   body[data-edge="none"] #panelPath,
   body[data-edge="none"] .fab .disc > circle:first-child,
   body[data-edge="none"] .pop-bubble path,
   body[data-edge="glow"] #panelPath,
-  body[data-edge="glow"] .fab .disc > circle:first-child { stroke: none; }
+  body[data-edge="glow"] .fab .disc > circle:first-child,
+  body[data-edge="rainbow"] #panelPath,
+  body[data-edge="rainbow"] .fab .disc > circle:first-child { stroke: none; }
   body[data-edge="glow"] .panel-svg,
   body[data-edge="glow"] .fab svg {
     filter: drop-shadow(0 0 3.4px rgba(255, 255, 255, 0.32));
   }
   body[data-edge="lift"] { --panel: #202020; }
+  @property --rh { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+  @keyframes rainbow-hue { to { --rh: 360deg; } }
+  body[data-edge="rainbow"] .panel-svg,
+  body[data-edge="rainbow"] .fab svg {
+    filter: drop-shadow(0 0 4px hsl(var(--rh) 100% 65% / 0.55))
+            drop-shadow(0 0 11px hsl(var(--rh) 100% 65% / 0.28));
+    animation: rainbow-hue 6s linear infinite;
+  }
+  body[data-edge="input"] { --panel: #2b2b2b; --ring-track: #363636; }
+  /* 键盘预览态(仅 ?edge= 时挂载):HUD + ZCode 明暗背景模拟;宿主无查询串永不出现 */
+  .edge-hud {
+    position: fixed; left: 12px; bottom: 12px; z-index: 99;
+    background: rgba(10, 10, 10, 0.85); color: #e2e2e2;
+    border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 10px;
+    padding: 10px 14px; font: 12px/1.8 var(--font-ui); user-select: none;
+  }
+  .edge-hud b { color: #ffffff; }
+  body.sim-dark { background: #161616 !important; }   /* zai-dark --color-background */
+  body.sim-light { background: #f8f8f8 !important; }  /* zai-light --color-background */
 
   /* ─── 圆环计量组 ─────────────────────────────────────────────── */
   .meter {
@@ -1660,12 +1686,113 @@
     var m = location.search.match(/[?&]key=(\d+(?:\.\d+)?)/);
     if (m) butlerSetRing('key', parseFloat(m[1]), true);
   })();
-  /* ?edge= 深色主题轮廓方案预览(v0.6.8,选型用,同弹框 ?v=1..5 惯例;宿主无查询串恒为默认):
-     none=无描边(旧貌对照)/ hair=白10%描边(默认,zai-dark --color-border 同值)/
-     glow=白色柔光边缘(过滤器方案)/ lift=抬亮面板底色至 zai-dark --color-panel #202020(表面色阶方案) */
+  /* ?edge= 深色主题轮廓方案预览(v0.6.8 起,v0.6.9 扩为七案矩阵 + 键盘切换)。
+     本页即选型网页:URL 带 ?edge= 任意值即进入预览态——按 1-7 切方案、T 切明暗背景,
+     HUD 显当前方案;宿主 file:// 无查询串,永不进入预览态(生产恒默认 hair)。
+     1 hair(默认)/ 2 none(旧貌对照)/ 3 glow(白柔光)/ 4 lift(底色 #202020)/
+     5 rainbow(彩虹柔光)/ 6 stars(星空粒子)/ 7 input(底色=ZCode 输入框 #2b2b2b) */
+  var EDGE_MODES = ['hair', 'none', 'glow', 'lift', 'rainbow', 'stars', 'input'];
+  var EDGE_NAMES = {
+    hair: '白10% hairline(ZCode zai-dark 配方,生产默认)', none: '无描边(旧貌对照)',
+    glow: '白柔光边缘', lift: '底色抬亮 #202020(zai-dark 面板色)',
+    rainbow: '彩虹柔光(色相 6s 环流)', stars: '星空粒子(沿轮廓波浪来回 + 外逸星屑)',
+    input: '深色下底色=ZCode 输入框 #2b2b2b(源码 --color-input,像素双证)'
+  };
+  /* stars 方案引擎:沿面板轮廓的白色粒子(随机速度正负往返=波浪感 + 径向呼吸 +
+     闪烁),外加每 ~0.5s 一颗从随机边缘点向外逸散消散的星屑;layer 挂 panelWrap
+     (随收起动画一起滑出),切换方案即拆 */
+  var edgeStarsRAF = 0, edgeStarLayer = null;
+  function edgeStarsStop() {
+    if (edgeStarsRAF) cancelAnimationFrame(edgeStarsRAF);
+    edgeStarsRAF = 0;
+    if (edgeStarLayer) { edgeStarLayer.remove(); edgeStarLayer = null; }
+  }
+  function edgeStarsStart() {
+    if (edgeStarLayer) return;
+    var path = document.getElementById('panelPath');
+    var wrap = document.getElementById('panelWrap');
+    if (!path || !wrap) return;
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 430 2025');
+    svg.setAttribute('width', '430'); svg.setAttribute('height', '2025');
+    svg.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:3;';
+    wrap.insertBefore(svg, wrap.querySelector('.meter'));
+    edgeStarLayer = svg;
+    var L = path.getTotalLength(), N = 46, ps = [], i;
+    function seed(t0) {
+      return {
+        t: t0, v: (3 + Math.random() * 8) * (Math.random() < 0.5 ? -1 : 1),
+        amp: 2 + Math.random() * 5, ph: Math.random() * 6.28,
+        fq: 0.5 + Math.random() * 1.2, r: 0.9 + Math.random() * 1.5,
+        tw: 0.35 + Math.random() * 0.55
+      };
+    }
+    for (i = 0; i < N; i++) {
+      var c = document.createElementNS(NS, 'circle');
+      c.setAttribute('fill', '#ffffff');
+      svg.appendChild(c);
+      ps.push({ el: c, s: seed(L * i / N) });
+    }
+    var spk = null, spkAt = 0, last = performance.now();
+    function frame(now) {
+      var dt = Math.min(0.05, (now - last) / 1000); last = now;
+      for (var k = 0; k < ps.length; k++) {
+        var p = ps[k], s = p.s;
+        s.t += s.v * dt;
+        if (s.t < 0) s.t += L; else if (s.t > L) s.t -= L;
+        var pt = path.getPointAtLength(s.t);
+        var dx = pt.x - 365, dy = pt.y - 920, dl = Math.hypot(dx, dy) || 1;
+        var off = 4 + s.amp * Math.sin(now / 1000 * s.fq * 6.283 + s.ph);
+        var op = s.tw * (0.55 + 0.45 * Math.sin(now / 1000 * 2.2 + s.ph * 3));
+        p.el.setAttribute('cx', (pt.x + dx / dl * off).toFixed(1));
+        p.el.setAttribute('cy', (pt.y + dy / dl * off).toFixed(1));
+        p.el.setAttribute('r', s.r.toFixed(2));
+        p.el.setAttribute('opacity', Math.max(0, op).toFixed(2));
+      }
+      if (!spk && now - spkAt > 500) {
+        spkAt = now;
+        var c2 = document.createElementNS(NS, 'circle');
+        c2.setAttribute('fill', '#ffffff'); svg.appendChild(c2);
+        var t0 = Math.random() * L, q = path.getPointAtLength(t0);
+        var sx = q.x - 365, sy = q.y - 920, sl = Math.hypot(sx, sy) || 1;
+        spk = { el: c2, x: q.x, y: q.y, ux: sx / sl, uy: sy / sl, life: 1, r: 1.4 + Math.random() };
+      }
+      if (spk) {
+        spk.x += spk.ux * 26 * dt; spk.y += spk.uy * 26 * dt; spk.life -= dt / 1.6;
+        if (spk.life <= 0) { spk.el.remove(); spk = null; }
+        else {
+          spk.el.setAttribute('cx', spk.x.toFixed(1)); spk.el.setAttribute('cy', spk.y.toFixed(1));
+          spk.el.setAttribute('r', (spk.r * spk.life).toFixed(2));
+          spk.el.setAttribute('opacity', (spk.life * 0.8).toFixed(2));
+        }
+      }
+      edgeStarsRAF = requestAnimationFrame(frame);
+    }
+    edgeStarsRAF = requestAnimationFrame(frame);
+  }
   (function () {
-    var m = location.search.match(/[?&]edge=(none|hair|glow|lift)/);
-    if (m) document.body.dataset.edge = m[1];
+    var m = location.search.match(/[?&]edge=(none|hair|glow|lift|rainbow|stars|input)/);
+    if (!m) return;   /* 宿主/普通浏览:不进预览态,不挂 HUD 与键盘 */
+    var hud = document.createElement('div');
+    hud.id = 'edgeHud'; hud.className = 'edge-hud';
+    document.body.appendChild(hud);
+    document.body.classList.add('sim-dark');
+    function apply(mode) {
+      document.body.dataset.edge = mode;
+      if (mode === 'stars') edgeStarsStart(); else edgeStarsStop();
+      hud.innerHTML = '深色轮廓方案预览:<b>' + mode + '</b> — ' + (EDGE_NAMES[mode] || '') +
+        '<br>按键 1-7 切方案 · T 切明/暗背景 · 当前背景:' +
+        (document.body.classList.contains('sim-light') ? '亮 #f8f8f8' : '暗 #161616');
+    }
+    document.addEventListener('keydown', function (e) {
+      if (e.key >= '1' && e.key <= '7') apply(EDGE_MODES[+e.key - 1]);
+      else if (e.key === 't' || e.key === 'T') {
+        document.body.classList.toggle('sim-light');
+        apply(document.body.dataset.edge || 'hair');
+      }
+    });
+    apply(m[1]);
   })();
   /* 首帧数据来源(v0.2.2):?demo=1 → 四环 + 四弹框全量示例(调 UI 用);否则 localStorage 快照
      (上次宿主推送的真值)→ 冷启动首帧即真实值,消灭「设计稿 73% 闪一下才变正常」;
