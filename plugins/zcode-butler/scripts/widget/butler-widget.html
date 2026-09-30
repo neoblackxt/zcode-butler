@@ -1695,7 +1695,7 @@
   var EDGE_NAMES = {
     hair: '白10% hairline(ZCode zai-dark 配方,生产默认)', none: '无描边(旧貌对照)',
     glow: '白柔光边缘', lift: '底色抬亮 #202020(zai-dark 面板色)',
-    rainbow: '彩虹柔光(色相 6s 环流)', stars: '星空粒子(面板 90 颗 + 弧线按钮 22 颗,波浪来回 + 外逸星屑)',
+    rainbow: '彩虹柔光(色相 6s 环流)', stars: '星空粒子(生产默认:面板 90 + 弧线钮全环 26,波浪来回 + 外逸星屑)',
     input: '深色下底色=ZCode 输入框 #2b2b2b(源码 --color-input,像素双证)'
   };
   /* stars 方案引擎(v0.6.9 补:双路径+加密,用户反馈"粒子多一点、弧线按钮呢"):
@@ -1768,7 +1768,6 @@
     var wrap = document.getElementById('panelWrap');
     var panel = document.getElementById('panelPath');
     var fabSvg = document.querySelector('.fab svg');
-    var arc = document.getElementById('arcPath');
     if (wrap && panel) {
       var svg = document.createElementNS(NS, 'svg');
       svg.setAttribute('viewBox', '0 0 430 2025');
@@ -1777,11 +1776,19 @@
       wrap.insertBefore(svg, wrap.querySelector('.meter'));
       edgeStarHosts.push(makeHost({ path: panel, root: svg, cx: 365, cy: 920, count: 90, rate: 500 }));
     }
-    if (fabSvg && arc && arc.getTotalLength() > 0) {
+    if (fabSvg) {
+      /* 弧线按钮星环(v0.6.10 修"变设置按钮后粒子不全"):原沿 #arcPath 只有 ~104°
+         扫角,齿轮盘绽开(整圆 r76.5)后环缺一大截;改挂合成全圆路径 r84——在盘缘
+         76.5 与弧外沿 80.85 之外,弧线态/齿轮态皆为完整星环 */
       var g = document.createElementNS(NS, 'g');
       g.style.cssText = 'pointer-events:none;';
       fabSvg.appendChild(g);
-      edgeStarHosts.push(makeHost({ path: arc, root: g, cx: 96.5, cy: 97, count: 22, rate: 1200 }));
+      var CR = 84;
+      var cp = document.createElementNS(NS, 'path');
+      cp.setAttribute('d', 'M' + (96.5 - CR) + ',97 a' + CR + ',' + CR + ' 0 1,0 ' + (2 * CR) + ',0 a' + CR + ',' + CR + ' 0 1,0 ' + (-2 * CR) + ',0');
+      cp.setAttribute('fill', 'none');
+      g.appendChild(cp);
+      edgeStarHosts.push(makeHost({ path: cp, root: g, cx: 96.5, cy: 97, count: 26, rate: 1000 }));
     }
     if (!edgeStarHosts.length) return;
     var last = performance.now();
@@ -1794,7 +1801,15 @@
   }
   (function () {
     var m = location.search.match(/[?&]edge=(none|hair|glow|lift|rainbow|stars|input)/);
-    if (!m) return;   /* 宿主/普通浏览:不进预览态,不挂 HUD 与键盘 */
+    if (!m) {
+      /* 生产默认(v0.6.10 用户拍板:粒子;将来做成用户选项,彩虹与粒子两案都保留):
+         面板星屑 + 弧线按钮全环星环,底描边仍 hair(v0.6.8);?edge=hair 可静态对照。
+         prefers-reduced-motion 用户退回纯 hair(静态) */
+      if (!window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        edgeStarsStart();
+      }
+      return;
+    }
     var hud = document.createElement('div');
     hud.id = 'edgeHud'; hud.className = 'edge-hud';
     document.body.appendChild(hud);
