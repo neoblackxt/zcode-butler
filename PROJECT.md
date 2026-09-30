@@ -182,11 +182,14 @@ flowchart LR
 ```jsonc
 {
   "fetchedAt": "2026-09-11T01:00:00+08:00",
-  "account": {                          // R1:三环(失败时对应字段为 null 并入 errors)
+  "account": {                          // R1:三环 + 弹框明细(失败时对应字段为 null 并入 errors)
     "fiveHour":    { "pct": 3,  "used": 4072,    "limit": 125000, "resetAt": "...", "status": "ok" },
     "weekly":      { "pct": 1,  "used": "...",   "limit": "...",  "resetAt": "...", "status": "ok" },
     "mcpMonthly":  { "pct": 11, "tools": { "webSearch": "...", "webReader": "...", "zread": "..." }, "resetAt": "...", "status": "ok" },
-    "peakNow": false                     // 高峰期(工作日14-18时)横幅提醒
+    "peakNow": false,                    // 高峰期(工作日14-18时)横幅提醒
+    "dayUsage":    null,                 // v0.2.12 弹框明细:当日拆分 { total/peak/offPeak: {calls,tokens} },小时序列缺失为 null
+    "modelsToday": [],                   // v0.2.12 弹框明细:当日每模型 token [{name,tokens}](tokens 降序)
+    "modelsWeek":  []                    // v0.2.12 弹框明细:本周每模型 token(周窗口 = weekly.resetAt − 7 天 → now)
   },
   "keys": [                              // R2:按 pct 降序;悬浮窗渐进环按序取前 N 个
     { "id": "k1", "name": "主力", "tier": "PRO", "tail": "A1B2",
@@ -198,6 +201,8 @@ flowchart LR
 }
 ```
 
+v0.2.12 新增三字段为可选消费(校验器缺省容忍旧载荷);悬浮窗弹框四分发(5h/7d/mcp/key)为其唯一消费方,宿主 `Push-Data` 整包透传不挑字段。
+
 `--hook` 模式:读 ≤60 分钟缓存(零请求)输出 additionalContext 一行摘要;仅满额/高峰/有未读时注入。
 
 ---
@@ -208,6 +213,7 @@ flowchart LR
 
 - `GET {origin}/api/monitor/usage/quota/limit` — 三环额度(unit=3 五小时池 / unit=6 每周 / TIME_LIMIT=MCP月度)
 - 当日模型用量/工具调用接口照搬;高峰拆分用小时序列求和(工作日 14:00-17:59 左闭右开),不单独发峰窗区间请求
+- v0.2.12 周窗口模型明细:对同一 `model-usage` 接口发 `[weekly.nextResetTime − 7 天, now]` 窗口请求取 `modelSummaryList`(7d 弹框「每个模型使用总量」;2026-09-30 实测返回桶首与请求起点对齐,证实周起点口径)
 - 认证:`Authorization` 头,401 自动补 `Bearer`;超时 hook 5s / 常规 10s
 - 凭证优先级:参数 → `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_BASE_URL`(或 `ZAI_API_KEY`)→ 手动配置文件 → `~/.zcode/v2/config.json` 全 provider 扫描(编程套餐>通用>自定义);跳过 `zcode.z.ai`
 
