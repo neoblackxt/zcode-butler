@@ -14,7 +14,7 @@ test('collect:三模块全成 → 协议合法且校验通过', async () => {
   const { payload, raw } = await collect({
     deps: {
       fetchAccountData: fakeUsage({ fiveHour: ringOf({ pct: 3 }), weekly: null, mcpMonthly: null, peakNow: false }),
-      runQuery: fakeWatch([keyCardOf({ id: 'k1', name: 'a', tier: 'PRO', tail: '····A1B2', pct: 42, usedWeighted: 7, quota: 10, peak: 1, offpeak: 2, resetDate: '2026-09-30', status: 'ok' })]),
+      runQuery: fakeWatch([keyCardOf({ id: 'k1', name: 'a', tier: 'PRO', tail: '····A1B2', pct: 42, used: 7, quota: 10, peak: 1, offpeak: 2, resetDate: '2026-09-30', status: 'ok' })]),
       getNewsState: fakeNews(1),
     },
   });
@@ -66,7 +66,7 @@ test('summaryLine:三环 + 满额 + 未读拼接;全空 → 兜底文案', () =>
   p.account.fiveHour = ringOf({ pct: 8, resetAt: Date.now() + 3.75 * 3600_000 });
   p.account.mcpMonthly = mcpRingOf({ pct: 11, resetAt: Date.now() + 10 * 24 * 3600_000 });
   p.account.weekly = ringOf({ pct: 4, resetAt: Date.now() + 5 * 24 * 3600_000 });
-  p.keys = [keyCardOf({ id: 'k1', name: '主力', tier: 'PRO', tail: '····A1B2', pct: 100, usedWeighted: 0, quota: 1, peak: 0, offpeak: 0, resetDate: '2026-09-30', status: 'ok' })];
+  p.keys = [keyCardOf({ id: 'k1', name: '主力', tier: 'PRO', tail: '····A1B2', pct: 100, used: 0, quota: 1, peak: 0, offpeak: 0, resetDate: '2026-09-30', status: 'ok' })];
   p.news = newsStateOf([newsCardOf({ id: 'n1', title: 't' })], []);
   const line = summaryLine(p);
   assert.match(line, /^【码管家】/);

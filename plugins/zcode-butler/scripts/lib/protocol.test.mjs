@@ -32,14 +32,14 @@ test('ringOf/mcpRingOf:数值清洗 + tools 三字段兜底', () => {
 test('keyCardOf:协议卡字段齐 + provider/incomplete 透传 + error 可选', () => {
   const k = keyCardOf({
     id: 'k1', name: '主力', tier: 'PRO', tail: 'A1B2', pct: 42.4,
-    usedWeighted: 7.3e8, quota: 17.5e8, peak: 6.1e8, offpeak: 2.6e8,
+    used: 7.3e8, quota: 17.5e8, peak: 6.1e8, offpeak: 2.6e8,
     resetDate: '2026-09-30', status: 'ok', provider: 'zai', incomplete: true,
   });
   assert.equal(k.pct, 42);
   assert.equal(k.provider, 'zai');
   assert.equal(k.incomplete, true);
   assert.equal('error' in k, false);
-  const bad = keyCardOf({ id: 'k2', name: 'x', tier: '', tail: '', pct: 0, usedWeighted: 0, quota: 0, peak: 0, offpeak: 0, resetDate: '', status: 'error', error: 'HTTP 401', provider: 'other' });
+  const bad = keyCardOf({ id: 'k2', name: 'x', tier: '', tail: '', pct: 0, used: 0, quota: 0, peak: 0, offpeak: 0, resetDate: '', status: 'error', error: 'HTTP 401', provider: 'other' });
   assert.equal(bad.status, 'error');
   assert.equal(bad.error, 'HTTP 401');
   assert.equal(bad.provider, 'bigmodel'); // 非 zai 一律 bigmodel
@@ -57,7 +57,7 @@ test('validateProtocol:合法全量载荷通过', () => {
   const p = emptyProtocol();
   p.account.fiveHour = ringOf({ pct: 3, used: 0, limit: 0, resetAt: 1789138996705 });
   p.account.mcpMonthly = mcpRingOf({ pct: 11, used: 110, limit: 1000, resetAt: 1790071443998, tools: { webSearch: 104 } });
-  p.keys = [keyCardOf({ id: 'k1', name: '主力', tier: 'PRO', tail: 'A1B2', pct: 42, usedWeighted: 7, quota: 10, peak: 1, offpeak: 2, resetDate: '2026-09-30', status: 'ok' })];
+  p.keys = [keyCardOf({ id: 'k1', name: '主力', tier: 'PRO', tail: 'A1B2', pct: 42, used: 7, quota: 10, peak: 1, offpeak: 2, resetDate: '2026-09-30', status: 'ok' })];
   p.news = newsStateOf([newsCardOf({ id: 'n1', title: 't' })], []);
   p.errors = [{ module: 'watch', message: 'x' }];
   assert.deepEqual(validateProtocol(p), []);

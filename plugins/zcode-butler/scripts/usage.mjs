@@ -154,8 +154,27 @@ export function splitDayUsage(modelUsage) {
   };
 }
 
-/** model-usage 响应 → 每模型 token 列表 [{name,tokens}](tokens 降序;序列缺失返回 []) */
-export function modelsOf(modelUsage) {
+/** model-usage 响应 → 每模型 token 列表 [{name,tokens}](tokens 降序)。
+ *  优先逐小时桶精算(modelDataList × x_time,只计标签 ≥ startLabel 的桶):多日窗口下
+ *  服务端 modelSummaryList 按整天算,会把窗口起点前的零头多计(2026-09-30 实测周窗口
+ *  summary 合计 8.26 亿 vs 桶算 = totalUsage 7.57 亿,差 9%);桶算合计与 totalUsage
+ *  严格相等。startLabel = 窗口起点小时桶标签('YYYY-MM-DD HH:00'),缺省取响应首桶。
+ *  无逐桶序列时回退 modelSummaryList(日窗口两者精确一致,不受影响)。 */
+export function modelsOf(modelUsage, startLabel) {
+  const xt = modelUsage?.x_time;
+  const dataList = modelUsage?.modelDataList;
+  if (Array.isArray(xt) && xt.length && Array.isArray(dataList)) {
+    const from = startLabel || xt[0];
+    const out = [];
+    for (const m of dataList) {
+      let tokens = 0;
+      for (let i = 0; i < xt.length; i++) {
+        if (xt[i] >= from) tokens += Number(m.tokensUsage?.[i]) || 0;
+      }
+      out.push({ name: String(m.modelName || ''), tokens });
+    }
+    return out.filter((m) => m.name && m.tokens > 0).sort((a, b) => b.tokens - a.tokens);
+  }
   const list = modelUsage?.totalUsage?.modelSummaryList;
   if (!Array.isArray(list)) return [];
   return list.map(modelCardOf)
@@ -216,8 +235,8 @@ export async function fetchAccountData({ timeoutMs = 10000, getFlag } = {}) {
   const account = mapQuotaToAccount(quota, nowMs);
   const dayUsage = splitDayUsage(modelUsage);
   account.dayUsage = dayUsage;
-  account.modelsToday = modelsOf(modelUsage);
-  account.modelsWeek = modelsOf(weekUsage);
+  account.modelsToday = modelsOf(modelUsage, bjHourLabel(dayStart));
+  account.modelsWeek = modelsOf(weekUsage, bjHourLabel(weekStart));
   account.weekUsage = weekUsageOf(weekUsage);
   return {
     account,

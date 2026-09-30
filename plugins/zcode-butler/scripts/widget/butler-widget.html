@@ -381,6 +381,7 @@
   .usage-pop.on {
     opacity: 1;
     transform: translateX(0);
+    pointer-events: auto;   /* v0.6.2:刷新按钮可点(临时);形状上报随之并入弹窗矩形 */
   }
   .pop-bubble {
     position: absolute; inset: 0;
@@ -417,6 +418,25 @@
     letter-spacing: 0.005em;
     color: #f7f7f7;
   }
+  /* v0.6.2 临时刷新按钮(zcode-watch WPF 卡片右上 ↻ 同款语义:点击即时拉新数) */
+  .pop-refresh {
+    margin-left: auto;
+    align-self: center;
+    border: 0;
+    padding: calc(var(--pu, 0.5px) * 6) calc(var(--pu, 0.5px) * 14);
+    background: transparent;
+    color: #8d8d8d;
+    font-size: calc(var(--pu, 0.5px) * 25);
+    font-family: inherit;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 999px;
+    -webkit-tap-highlight-color: transparent;
+    font-variant-numeric: tabular-nums;
+  }
+  .pop-refresh:hover { color: #f0f0f0; background: rgba(255, 255, 255, 0.06); }
+  .pop-refresh:disabled { color: #565656; cursor: default; background: transparent; }
+  .pop-refresh:focus-visible { outline: 2px solid rgba(245, 245, 245, 0.8); outline-offset: 2px; }
   .pop-row {
     display: flex;
     justify-content: space-between;
@@ -655,6 +675,8 @@
           </svg>
         </span>
         <h2 class="pop-title" id="popTitle" data-od-id="popup-title">用量详情</h2>
+        <button class="pop-refresh" id="popRefresh" type="button" title="立即刷新"
+                aria-label="立即刷新" data-od-id="popup-refresh">↻ 刷新</button>
       </header>
       <div id="popContent" data-od-id="popup-content"></div>
     </div>
@@ -855,6 +877,7 @@
       if (p) {   /* 环已出窗,弹窗不留残影 */
         p.classList.remove('on');
         p.setAttribute('aria-hidden', 'true');
+        butlerShapeDirty();   /* v0.6.2:弹窗矩形退出掩码 */
       }
       if (toastCard && toastCard.classList.contains('on')) butlerToastHide(false);
     }
@@ -1082,11 +1105,12 @@
       + '<div class="pop-bar slim"><i style="width:' + pct + '%;background:' + color + '"></i></div>';
   }
 
-  /* key 弹框:全部 Key 卡(名称/尾号/档位/国内·海外 + 水位条 + 加权用量明细;
-     智谱 Coding Plan 专用,provider bigmodel=国内 / zai=海外) */
+  /* key 弹框:全部 Key 卡(名称/尾号/档位/国内·海外 + 水位条 + 用量明细;
+     智谱 Coding Plan 专用,provider bigmodel=国内 / zai=海外;
+     v0.6.2 起口径 = 原始 token,用户拍板取消高峰 ×3 折算) */
   function popKeyHtml(keys) {
     var h = '';
-    h += '<div class="pop-note lead">智谱 Coding Plan Key · 国内 / 海外 · 加权 = 非高峰×1 + 高峰×3</div>';
+    h += '<div class="pop-note lead">智谱 Coding Plan Key · 国内 / 海外 · 口径:原始 token(高峰不折算)</div>';
     if (!keys || !keys.length) {
       h += '<div class="pop-row tight"><span class="pop-label">未配置监控 Key</span>'
         + '<span class="pop-val sub">添加方式见 /butler:watch</span></div>';
@@ -1102,7 +1126,7 @@
         h += '<div class="pop-note err">' + esc(k.error || '查询失败') + '</div>';
       } else {
         h += barHtml(k.pct, ringColor(k.pct), true);
-        h += '<div class="pop-note">' + fmtTok(k.usedWeighted) + ' / ' + fmtTok(k.quota)
+        h += '<div class="pop-note">' + fmtTok(k.used != null ? k.used : k.usedWeighted) + ' / ' + fmtTok(k.quota)
           + ' · 高峰 ' + fmtTok(k.peak) + ' · 非高峰 ' + fmtTok(k.offpeak)
           + (k.resetDate ? ' · ' + String(k.resetDate).slice(5) + ' 重置' : '') + '</div>';
       }
@@ -1119,6 +1143,25 @@
     var p = document.getElementById('usagePop');
     if (p && p.classList.contains('on') && popKind === '5h') renderPop('5h');
   }, 30000);
+
+  /* ── 临时刷新按钮(v0.6.2,zcode-watch ↻ 同款语义):点击 → 通知宿主立即重跑
+     status.mjs;新数据到达(butlerApply)即复位。仅宿主环境生效;45s 兜底复位。
+     临时件:待后续接「SessionStart/定时自动刷新」后整体移除(含 pop 矩形入掩码)。 */
+  (function () {
+    var btn = document.getElementById('popRefresh');
+    if (!btn) return;
+    var RESET = '↻ 刷新';
+    function reset() { btn.disabled = false; btn.textContent = RESET; }
+    btn.addEventListener('click', function () {
+      if (btn.disabled) return;
+      if (!(window.chrome && window.chrome.webview)) { reset(); return; }
+      btn.disabled = true;
+      btn.textContent = '刷新中…';
+      try { window.chrome.webview.postMessage('{"type":"refresh"}'); } catch (err) { reset(); return; }
+      setTimeout(function () { if (btn.disabled) reset(); }, 45000);
+    });
+    window.butlerPopRefreshDone = reset;
+  })();
 
   /* ── 环详情弹窗:悬停显示环 → 弹窗左侧浮现,尖角指向该环中心。
       尺寸/间距全部按舞台像素等比(--u = 窗口高 / 2025),外框再乘 CSS --pop-scale
@@ -1152,12 +1195,13 @@
       /* v0.6.0 四分发:按 meter 的 data-od-id 渲染对应弹框内容 */
       var kind = String(meter.getAttribute('data-od-id') || '').replace(/^meter-/, '');
       if (POP_TITLES[kind]) renderPop(kind);
-      if (pop.classList.contains('on')) { place(meter); return; }  /* 环间滑动不重播 */
+      if (pop.classList.contains('on')) { place(meter); butlerShapeDirty(); return; }  /* 环间滑动不重播,矩形随动重报 */
       clearTimeout(showT);
       showT = setTimeout(function () {
         place(meter);
         pop.classList.add('on');
         pop.setAttribute('aria-hidden', 'false');
+        butlerShapeDirty();   /* v0.6.2:弹窗显形 → 矩形并入掩码(刷新按钮可点的前提) */
       }, 90);
     }
     function hide() {
@@ -1168,6 +1212,7 @@
         if (!FORCE_POP_FOR_PREVIEW && !/[?&]pop=/.test(location.search) && !/pop/.test(location.hash)) {
           pop.classList.remove('on');
           pop.setAttribute('aria-hidden', 'true');
+          butlerShapeDirty();   /* v0.6.2:弹窗隐形 → 矩形退出掩码,区域回穿透 */
         }
       }, 70);
     }
@@ -1176,6 +1221,9 @@
       m.addEventListener('mouseenter', function () { show(m); });
       m.addEventListener('mouseleave', hide);
     });
+    /* v0.6.2:指针移进弹窗本体 = 保活(刷新按钮可达);离开弹窗且 70ms 内未回环 → 收起 */
+    pop.addEventListener('mouseenter', function () { clearTimeout(hideT); });
+    pop.addEventListener('mouseleave', hide);
     window.addEventListener('resize', function () {
       if (active || FORCE_POP_FOR_PREVIEW) place(active || meters[0]);
     }, { passive: true });
@@ -1184,7 +1232,7 @@
       var kind0 = POP_TITLES[popQ] ? popQ : '5h';
       var meter0 = document.querySelector('[data-od-id="meter-' + kind0 + '"]') || meters[0];
       active = meter0;   /* 预览常显时记为活动环:resize 重定位走 place 分支 */
-      requestAnimationFrame(function () { renderPop(kind0); place(meter0); pop.classList.add('on'); });
+      requestAnimationFrame(function () { renderPop(kind0); place(meter0); pop.classList.add('on'); butlerShapeDirty(); });
     }
   })();
 
@@ -1239,9 +1287,11 @@
     var keys = (d.keys || []).filter(function (k) { return k.status !== 'error'; });
     var top = keys.length ? keys[0] : null;
     butlerSetRing('key', top ? top.pct : null, !!top);
-    /* 悬停中的弹窗随新数据即时刷新(refresh 周期 110min,常态无感) */
+    /* 悬停中的弹窗随新数据即时刷新(refresh 周期 110min,常态无感);
+       新数据到达同时复位临时刷新按钮 */
     var pop = document.getElementById('usagePop');
     if (pop && pop.classList.contains('on') && popKind) renderPop(popKind);
+    if (window.butlerPopRefreshDone) window.butlerPopRefreshDone();
   }
   /* ?key=NN:强制 Key 环用量预览(三档水位色核验用;宿主 file:// 无查询串,不受影响) */
   (function () {
@@ -1280,14 +1330,14 @@
           weekUsage: { calls: 3263, tokens: 750122453 },
         },
         keys: [
-          { name: 'key-1', tail: '····jb58', tier: 'PRO', provider: 'bigmodel', pct: 76,
-            usedWeighted: 1333000000, quota: 1750000000, peak: 610000000, offpeak: 260000000,
+          { name: 'key-1', tail: '····jb58', tier: 'PRO', provider: 'bigmodel', pct: 50,
+            used: 870000000, quota: 1750000000, peak: 610000000, offpeak: 260000000,
             resetDate: '2026-10-01', status: 'ok' },
           { name: 'key-2', tail: '····kJqT', tier: 'PRO', provider: 'bigmodel', pct: 0,
-            usedWeighted: 0, quota: 1750000000, peak: 0, offpeak: 0,
+            used: 0, quota: 1750000000, peak: 0, offpeak: 0,
             resetDate: '2026-10-01', status: 'ok' },
-          { name: '海外备', tail: '····Zz9', tier: 'MAX', provider: 'zai', pct: 41,
-            usedWeighted: 720000000, quota: 1750000000, peak: 120000000, offpeak: 360000000,
+          { name: '海外备', tail: '····Zz9', tier: 'MAX', provider: 'zai', pct: 27,
+            used: 480000000, quota: 1750000000, peak: 120000000, offpeak: 360000000,
             resetDate: '2026-10-01', status: 'ok' },
         ],
       });
@@ -1386,12 +1436,21 @@
         var tr = toastEl.getBoundingClientRect();
         toastRect = [tr.left, tr.top, tr.right, tr.bottom];
       }
+      /* v0.6.2 环详情弹窗显形时把弹窗矩形并入形状上报(临时件,随刷新按钮生灭):
+         宿主开命中 → 弹窗内刷新按钮可点、指针入窗保活;隐藏上报 null 回穿透 */
+      var popEl = document.getElementById('usagePop');
+      var popRect = null;
+      if (popEl && popEl.classList.contains('on')) {
+        var pr = popEl.getBoundingClientRect();
+        popRect = [pr.left, pr.top, pr.right, pr.bottom];
+      }
       try {
         var pb = panel.getBoundingClientRect(), ab = arc ? arc.getBoundingClientRect() : null;
         window.chrome.webview.postMessage(JSON.stringify({
           type: 'shape', dpr: (window.devicePixelRatio || 1),
           capsule: caps, band: band, caps: arcCaps, bandR: bandR, fabC: fabC, fabR: fabR,
           toast: toastRect,
+          pop: popRect,
           dbgPanelBox: [pb.left, pb.top, pb.right, pb.bottom],
           dbgArcBox: ab ? [ab.left, ab.top, ab.right, ab.bottom] : null,
           dbgBodyBg: getComputedStyle(document.body).backgroundColor,

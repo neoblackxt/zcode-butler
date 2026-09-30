@@ -1,4 +1,5 @@
-// watch 单测:移植自 zcode-watch.test.mjs(纯函数与源项目逐字节等价,漂移控制锚点)
+// watch 单测:移植自 zcode-watch.test.mjs(纯函数与源项目逐字节等价,漂移控制锚点;
+// 例外:weightedOf 已随 v0.6.2「取消高峰×3」用户拍板移除,源项目保留加权口径)
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -6,7 +7,7 @@ import {
   monthKeyOf, nextMonthStartOf, dayKeyOf,
   parseBillTime, parseTimeWindowStart, isPeakMinute,
   keyIdSegmentOf, aggregateRows, computePullStart, mergeBuckets,
-  weightedOf, parseConfig, resetCacheIfStale,
+  parseConfig, resetCacheIfStale,
   daysUntilReset, keysSummaryLine,
 } from './watch.mjs';
 
@@ -162,11 +163,8 @@ test('resetCacheIfStale:跨月整体清空;同月原样保留', () => {
   assert.deepEqual(resetCacheIfStale(same, '2026-09'), same);
 });
 
-// ---------- 加权 / 配置 ----------
-test('weightedOf:总使用额度 = 非高峰×1 + 高峰×3', () => {
-  assert.equal(weightedOf(0, 0), 0);
-  assert.equal(weightedOf(410, 610), 410 + 610 * 3);
-});
+// ---------- 配置 ----------
+// (weightedOf 已随 v0.6.2「取消高峰×3」用户拍板移除——源项目 zcode-watch 保留加权口径,有意分叉)
 
 test('parseConfig:BOM + CRLF 容错,缺省字段给默认值;错误信息指向传入的文件', () => {
   const { keys } = parseConfig('\uFEFF{"keys":\r\n[{"apiKey": " abc123 "}]}\r\n');

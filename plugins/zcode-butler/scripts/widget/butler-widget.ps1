@@ -1,6 +1,13 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
-# 码管家桌面悬浮窗 v0.6.1(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# 码管家桌面悬浮窗 v0.6.2(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# v0.6.2:弹窗临时刷新按钮(zcode-watch ↻ 同款语义)+ Key 取消高峰×3:
+#   ①页面弹窗头加「↻ 刷新」按钮,postMessage {type:'refresh'} → 宿主 Invoke-Refresh
+#     立即重跑 status.mjs(110 分钟周期外的手动通道,治数据陈旧);
+#   ②弹窗显形期间矩形并入命中掩码(shape.pop → SetPopRect → MaskHit,同 toast 先例),
+#     按钮可点、指针入窗保活(meter leave 70ms 宽限),隐藏即回穿透——临时件,接自动
+#     刷新方案后随按钮整体移除;
+#   ③数据侧见 usage.mjs/watch.mjs:每模型逐桶精算 + Key 原始 token 口径。
 # v0.6.1:7d 弹框周窗口定标修复(数据侧;宿主零改动)——「每个模型使用总量」窗口
 #   由「额度重置点−7天」(=额度周期起点,仅覆盖 1.5 天/3.08 亿)改为「近 7 天滚动」
 #   (7.50 亿,用户真值对齐);合计由模型列表求和(周窗口下与服务端 totalUsage 有
@@ -170,6 +177,7 @@ public static class ButlerHost {
   private static int _maskN;
   private static int _fabX, _fabY, _fabR;
   private static int _toastL, _toastT, _toastR, _toastB;   // v0.5.1 通知卡命中矩形(客户区物理px;R<=L=卡隐藏)
+  private static int _popL, _popT, _popR, _popB;           // v0.6.2 弹窗命中矩形(临时,同 toast 先例;R<=L=弹窗隐藏)
 
   public static Action<string> OnMessage;
   public static Action OnHotKey;
@@ -474,10 +482,18 @@ public static class ButlerHost {
     Log(_toastR > _toastL ? ("toast rect=" + l + "," + t + "," + r + "," + b) : "toast rect=off");
   }
 
+  // v0.6.2:环详情弹窗命中矩形(临时件,随刷新按钮生灭,同 toast 先例):显形期间弹窗
+  // 区域 HTCLIENT——刷新按钮可点、指针入窗保活;隐藏(R<=L)回穿透。Y 不进 CapsuleExtent
+  public static void SetPopRect(int l, int t, int r, int b) {
+    _popL = l; _popT = t; _popR = r; _popB = b;
+    Log(_popR > _popL ? ("pop rect=" + l + "," + t + "," + r + "," + b) : "pop rect=off");
+  }
+
   private static bool MaskHit(int screenX, int screenY) {
     var p = new POINT { X = screenX, Y = screenY };
     ScreenToClient(_hwnd, ref p);
     if (_toastR > _toastL && p.X >= _toastL && p.X <= _toastR && p.Y >= _toastT && p.Y <= _toastB) return true;
+    if (_popR > _popL && p.X >= _popL && p.X <= _popR && p.Y >= _popT && p.Y <= _popB) return true;
     if (_fabR > 0) {
       long dx = p.X - _fabX, dy = p.Y - _fabY;
       if (dx * dx + dy * dy <= (long)_fabR * _fabR) return true;
@@ -643,7 +659,26 @@ function Push-Data {
         } else {
           [ButlerHost]::SetToastRect(0, 0, 0, 0)
         }
+        # v0.6.2:环详情弹窗矩形(临时,随刷新按钮)同 toast 并入/退出命中掩码
+        if ($o.pop) {
+          [ButlerHost]::SetPopRect(
+            [int][Math]::Round([double]$o.pop[0] * $dpr),
+            [int][Math]::Round([double]$o.pop[1] * $dpr),
+            [int][Math]::Round([double]$o.pop[2] * $dpr),
+            [int][Math]::Round([double]$o.pop[3] * $dpr))
+        } else {
+          [ButlerHost]::SetPopRect(0, 0, 0, 0)
+        }
       } catch { WLog ('shape THREW: ' + $_.Exception.Message) }
+    }
+    elseif ($msg -like '{"type":"refresh"*') {
+      # v0.6.2 临时刷新按钮:页 → 宿主要求立即重跑 status.mjs(node 在飞则跳过,等其完成即可)
+      if ($script:nodeProc -and -not $script:nodeProc.HasExited) {
+        WLog 'refresh: node in flight, skip'
+      } else {
+        WLog 'refresh: invoke'
+        Invoke-Refresh
+      }
     }
     elseif ($msg -like '*ready*') { $script:pageReady = $true; Push-Data }
     # v0.4.9:drag 消息路由已删——面板固定 1/3 锚定,页面侧拖动桥同除,此消息不再出现

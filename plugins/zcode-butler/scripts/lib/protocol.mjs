@@ -31,7 +31,8 @@ export function mcpRingOf({ pct, used, limit, resetAt, tools = {} }, status = 'o
   };
 }
 
-/** Key 卡:peak/offpeak 为原始 token,usedWeighted = offpeak + peak×3(加权口径);
+/** Key 卡:used = 原始 token 总量(v0.6.2 起取消高峰 ×3 加权,字段自 usedWeighted 更名);
+ *  peak/offpeak 为原始 token 拆分;
  *  provider/incomplete 为终端卡片扩展字段(悬浮窗可忽略,不计入校验必填项) */
 export function keyCardOf(k) {
   return {
@@ -40,7 +41,7 @@ export function keyCardOf(k) {
     tier: String(k.tier || '未知'),
     tail: String(k.tail || ''),
     pct: Math.round(Number(k.pct) || 0),
-    usedWeighted: Number(k.usedWeighted) || 0,
+    used: Number(k.used ?? k.usedWeighted) || 0,
     quota: Number(k.quota) || 0,
     peak: Number(k.peak) || 0,
     offpeak: Number(k.offpeak) || 0,
@@ -166,7 +167,7 @@ export function validateProtocol(p) {
       for (const f of ['id', 'name', 'tier', 'tail', 'resetDate', 'status']) {
         if (typeof k[f] !== 'string') errs.push(`keys[${i}].${f} 应为字符串`);
       }
-      for (const f of ['pct', 'usedWeighted', 'quota', 'peak', 'offpeak']) {
+      for (const f of ['pct', 'used', 'quota', 'peak', 'offpeak']) {
         if (typeof k[f] !== 'number') errs.push(`keys[${i}].${f} 应为数字`);
       }
     });

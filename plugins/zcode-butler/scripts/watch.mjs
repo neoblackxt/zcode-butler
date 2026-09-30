@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
- * watch.mjs —— 多把 GLM Coding Plan API Key 的自然月加权用量监控(提炼自 zcode-watch v0.4.0)
+ * watch.mjs —— 多把 GLM Coding Plan API Key 的自然月用量监控(提炼自 zcode-watch v0.4.0)
  *
  * 数据来源:
  *   GET https://bigmodel.cn/api/finance/expenseBill/expenseBillList  —— 分钟级账单(账号级,同账号多 Key 一次拉)
  *   GET {origin}/api/monitor/usage/quota/limit                      —— 套餐档位(缓存 1 小时)
  *
- * 统计口径:每把 Key 独立;高峰 = 工作日 14:00–17:59 分钟窗;加权总量 = 非高峰×1 + 高峰×3;
+ * 统计口径:每把 Key 独立;高峰 = 工作日 14:00–17:59 分钟窗;
  * 月度 = 自然月,每月 1 号重置。增量同步:水位线 + 缺口窗口(保底 2h)+ 小时桶幂等合并 + 40 页断点续拉。
+ * v0.6.2 用户拍板:**取消高峰 ×3 加权折算**(源项目 zcode-watch 保留加权口径,此处有意分叉)——
+ * 用量与水位一律原始 token 总量(= 高峰 + 非高峰),不再乘算。
  *
  * 与 zcode-watch 的差异:配置改读 ~/.zcode/butler.json(无 keys 时回退兼容 ~/.zcode/zcode-watch.json,
  * 只读不写);缓存并入 ~/.zcode/butler-cache.json(lib/cache.mjs);输出对齐 butler 协议 keys 段。
@@ -27,7 +29,7 @@ const asJson = argv.includes('--json');
 const asHook = argv.includes('--hook');
 
 // ---------- 常量 ----------
-export const DEFAULT_MONTHLY_QUOTA = 1750000000; // 17.5 亿加权 token
+export const DEFAULT_MONTHLY_QUOTA = 1750000000; // 17.5 亿 token(v0.6.2 起原始口径,不折高峰)
 export const MIN_WINDOW_HOURS = 2;               // 保底拉取窗口(小时)
 export const PAGE_SIZE = 500;                    // 明细分页大小
 export const MAX_PAGES = 40;                     // 翻页上限(防失控),触顶走 backlog 续拉
@@ -162,9 +164,6 @@ export function resetCacheIfStale(cache, monthKey) {
   }
   return cache;
 }
-
-/** 总使用额度(加权)= 非高峰×1 + 高峰×3 */
-export const weightedOf = (offPeak, peak) => offPeak + peak * 3;
 
 /** 配置解析:剥 BOM、容忍 CRLF、缺省字段给默认值;结构不对抛带指引的错误 */
 export function parseConfig(text, configFile = BUTLER_CONFIG_FILE) {
@@ -402,15 +401,15 @@ export async function runQuery(timeoutMs = FETCH_TIMEOUT) {
     const err = cid ? accountErrors[cid] : accountErrors[`solo:${k.id}`];
     const { tokens, peak } = sumBuckets(state?.settled?.[seg]);
     const offPeak = Math.max(0, tokens - peak);
-    const weighted = weightedOf(offPeak, peak);
-    const percent = k.monthlyQuota > 0 ? (weighted / k.monthlyQuota) * 100 : 0;
+    // v0.6.2 用户拍板:取消高峰 ×3 折算,用量/水位一律原始 token(zcode-watch 源项目保留加权,有意分叉)
+    const percent = k.monthlyQuota > 0 ? (tokens / k.monthlyQuota) * 100 : 0;
     return keyCardOf({
       id: k.id,
       name: k.name,
       tier: state?.level || '未知',
       tail: maskKey(k.apiKey),
       pct: percent,
-      usedWeighted: weighted,
+      used: tokens,
       quota: k.monthlyQuota,
       peak,
       offpeak: offPeak,
@@ -478,7 +477,7 @@ export function renderWatchCard(payload, now = new Date()) {
   lines.push(rule('━'));
   lines.push(bold(` ⚡ 码管家 · Key 月度用量 · ${payload.month} · ${payload.keys.length} 把(${ok} 把正常)`));
   const legacy = payload.fromLegacy ? dim(`    (读自旧配置 ${payload.fromLegacy},建议迁到 butler.json)`) : '';
-  lines.push(dim(`    ${now.toLocaleString('zh-CN')} · 加权口径 = 非高峰×1 + 高峰×3`));
+  lines.push(dim(`    ${now.toLocaleString('zh-CN')} · 口径:原始 token(v0.6.2 起取消高峰 ×3 折算)`));
   if (legacy) lines.push(legacy);
   for (const k of payload.keys) {
     lines.push('');
@@ -492,8 +491,8 @@ export function renderWatchCard(payload, now = new Date()) {
     }
     if (k.pct >= 100) lines.push(`   ${c('1;31', '⚠ 本月已用满 100%,建议停用该 Key')}`);
     lines.push(`   ${bar(k.pct)}`);
-    lines.push(`   ${padEndW('总使用额度', LABEL_W)}${fmtTokens(k.usedWeighted)} / ${fmtTokens(k.quota)}`);
-    lines.push(`   ${padEndW('高峰期使用', LABEL_W)}${fmtTokens(k.peak)}(×3 折算)`);
+    lines.push(`   ${padEndW('总使用额度', LABEL_W)}${fmtTokens(k.used)} / ${fmtTokens(k.quota)}`);
+    lines.push(`   ${padEndW('高峰期使用', LABEL_W)}${fmtTokens(k.peak)}`);
     lines.push(`   ${padEndW('非高峰期使用', LABEL_W)}${fmtTokens(k.offpeak)}`);
     lines.push(dim(`   ↻ ${k.resetDate} 重置 · 还剩 ${daysUntilReset(now)} 天`));
     if (k.incomplete) lines.push(dim('   (账单数据量过大,本轮未拉完,断点续拉中)'));

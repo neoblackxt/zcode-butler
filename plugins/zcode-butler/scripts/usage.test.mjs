@@ -104,19 +104,27 @@ test('splitDayUsage:总量拆高峰/非高峰;序列缺失返回 null', () => {
   assert.equal(splitDayUsage(null), null);
 });
 
-test('modelsOf:modelSummaryList → [{name,tokens}] tokens 降序;缺失返回 []', () => {
+test('modelsOf:优先逐小时桶精算(掐窗口起点,合计=totalUsage);无序列回退 summary;缺失 []', () => {
+  // 周窗口形态:summaryList 按整天算(含 09-22 零头),桶算只计 ≥ 起点
   const mu = {
-    totalUsage: { modelSummaryList: [
-      { modelName: 'GLM-5.3', totalTokens: 100 },
-      { modelName: 'GLM-5.3-Flash', totalTokens: 900 },
-      { modelName: 'GLM-5.3-FlashX', totalTokens: 500 },
+    x_time: ['2026-09-22 23:00', '2026-09-23 14:00', '2026-09-23 15:00', '2026-09-30 13:00'],
+    modelDataList: [
+      { modelName: 'GLM-5.3', tokensUsage: [69_000_000, 100, 200, 300], totalTokens: 69_000_600 },
+      { modelName: 'GLM-5.3-Flash', tokensUsage: [0, 1, 0, 0], totalTokens: 1 },
+    ],
+    totalUsage: { totalTokensUsage: 301, modelSummaryList: [
+      { modelName: 'GLM-5.3', totalTokens: 69_000_600 }, { modelName: 'GLM-5.3-Flash', totalTokens: 1 },
     ] },
   };
-  assert.deepEqual(modelsOf(mu), [
-    { name: 'GLM-5.3-Flash', tokens: 900 },
-    { name: 'GLM-5.3-FlashX', tokens: 500 },
-    { name: 'GLM-5.3', tokens: 100 },
+  const got = modelsOf(mu, '2026-09-23 15:00');
+  assert.deepEqual(got, [
+    { name: 'GLM-5.3', tokens: 500 },   // 只计 15:00 与 13:00 两桶(200+300),09-22/14:00 桶剔除
   ]);
+  // 无 modelDataList → 回退 summaryList(降序清洗)
+  const mu2 = { totalUsage: { modelSummaryList: [
+    { modelName: 'B', totalTokens: 2 }, { modelName: 'A', totalTokens: 9 },
+  ] } };
+  assert.deepEqual(modelsOf(mu2), [{ name: 'A', tokens: 9 }, { name: 'B', tokens: 2 }]);
   assert.deepEqual(modelsOf(null), []);
   assert.deepEqual(modelsOf({ totalUsage: {} }), []);
 });
