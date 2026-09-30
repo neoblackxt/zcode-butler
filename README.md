@@ -1,43 +1,53 @@
 # zcode-butler(码管家)
 
-ZCode 插件:智谱 GLM Coding Plan 的**账号用量 + 多 Key 监控 + 会话归档(Chat2Doc)+ 活动资讯**四合一管家。
+ZCode 插件:智谱 GLM Coding Plan 的**账号用量 + 多 Key 监控 + 会话归档(Chat2Doc)+ 活动资讯**四合一管家,附两个桌面悬浮窗。
 
-| 功能 | 状态 | 说明 |
+仓库:<https://github.com/ssbh163/zcode-butler>(当前版本 0.2.25)
+
+## 功能一览
+
+| 功能 | 入口 | 说明 |
 |---|---|---|
-| ⚡ 账号三环 | ✅ | 5 小时池 / 每周额度 / MCP 月度,重置倒计时与月度分工具明细 |
-| 🔑 Key 月度 | ✅ | 多把 API Key 自然月加权用量(高峰×3),增量同步水位线 |
-| 📄 Chat2Doc | ✅ | 把 AI 编程会话归档成结构化素材文档(提取→分批→摘要→合并) |
-| 🔔 活动资讯 | ✅ | 资讯条目 + 官方渠道直达,未读管理 |
-| 🪟 悬浮窗 | ✅ | Nothing 风格贴边侧栏(四环:5h/7d/MCP/Key 四档水位+高峰光晕+环详情弹框(ZCode 风格,自适应高度)),收起态化为「眼镜」气泡,未读提醒弹通知卡 |
+| ⚡ 账号三环 | `/butler:usage` | 5 小时池 / 每周额度 / MCP 月度,重置倒计时、当日高峰拆分 |
+| 🔑 Key 月度 | `/butler:watch` | 多把 Key 自然月用量(原始 token 口径),增量同步水位线、档位识别 |
+| 📄 Chat2Doc | `/butler:doc` | 会话归档成素材文档(提取 → 分批 → 摘要 → 合并),格式模板外置可改 |
+| 🔔 活动资讯 | `/butler:news` | 资讯条目 + 官方渠道直达,未读管理 |
+| 🪟 用量面板 | Ctrl+Shift+G | 双悬浮窗之一,见下节 |
+| 📈 性能浮标 | Ctrl+Alt+S | 双悬浮窗之二,见下节 |
 
-数据四端同源:悬浮窗 / 斜杠命令 / 对话技能 / 终端 CLI 读同一聚合协议,数字必然一致。悬浮窗随新会话自动拉起(Ctrl+Shift+G 显隐;底部按钮点击展开/收起,收起态有未读时点出通知卡),与 ZCode **同层共生**:吸附主窗右缘实时跟随,被其他窗口遮挡时一同被遮,ZCode 关闭即随退。
+以上均可斜杠命令调用,也可在对话里直接说"我的用量还剩多少"、"Key 满没满"、"归档当前会话"、"有什么活动"(skills/butler 自然语言入口)。
+
+## 双悬浮窗(Windows)
+
+**用量面板(butler-widget)**——吸附 ZCode 主窗右缘、帧级跟随、同层共生:ZCode 被遮挡时一同被遮,关闭即随退。展开态为四环侧栏:5 小时池 / 每周 / MCP 月度 / Key 水位,按已用额度四档变色(<30% 绿 / 30–60% 黄 / 60–90% 橙 / ≥90% 红);悬停任一环弹出 ZCode 风格详情气泡(当日拆分、模型占比、Key 明细,带一键刷新);齿轮点击展开/收起,收起态化为「眼镜」气泡(21 种眼神随机触发),有未读资讯时点出通知卡。新会话自动拉起。
+
+**性能浮标(stats-widget)**——贴在 ZCode 输入框右上方的 `●⚡首token X.XXs | ▁▃▅N.N tok/s` 双胶囊:UIA 探针自适应定位、帧级跟随输入框,亮暗主题自动采样;数据取自本地会话库真值(会话平均 tok/s、首 token 中位数),切换会话自动跟随显示对应数据。新会话自动拉起。
 
 ## 快速开始
 
-前置:Node.js ≥ 18(归档功能另需 Python ≥ 3.10,Windows 用 `py`)
+前置:Node.js ≥ 18(归档另需 Python ≥ 3.10,Windows 以 `py` 调用);悬浮窗需 Windows + WebView2 Runtime(插件自带配对的 vendored DLL),macOS 悬浮窗二期。零 npm / pip 依赖。
 
 1. ZCode → 插件市场 → 添加本地市场 → 选择本仓库根目录,启用 zcode-butler
-2. 新开对话:`/butler:usage`(账号三环)/ `/butler:watch`(Key 月度)/ `/butler:news`(资讯)/ `/butler:doc`(归档当前会话)
-3. 或对话里直接说"我的用量还剩多少"、"归档当前会话"(skills/butler 自然语言入口)
-4. 纯终端:
+2. 新开对话:`/butler:usage`(三环)/ `/butler:watch`(Key)/ `/butler:doc`(归档)/ `/butler:news`(资讯),悬浮窗随新会话自动拉起
+3. 纯终端:
 
 ```bash
-node plugins/zcode-butler/scripts/status.mjs          # 大卡片(三环+Key+资讯)
+node plugins/zcode-butler/scripts/status.mjs          # 终端大卡片(三环+Key+资讯)
 node plugins/zcode-butler/scripts/status.mjs --json   # 统一协议(悬浮窗同源)
 ```
 
-监控 Key 配置:`~/.zcode/butler.json`(字段同 zcode-watch.json,直接兼容;无此文件时自动只读旧 `~/.zcode/zcode-watch.json`)。
+常用配置:`~/.zcode/butler.json`(监控 Key 列表,兼容导入 zcode-watch.json);Chat2Doc 产物默认输出 `~/Desktop/归档/`,格式规则在 `plugins/zcode-butler/assets/templates/素材文档.md`,改模板即改产出。
 
-Chat2Doc 产物默认输出 `~/Desktop/归档/`;格式规则外置在 `plugins/zcode-butler/assets/templates/素材文档.md`,改模板即改产出,不动代码。
+**数据四端同源**:悬浮窗 / 斜杠命令 / 对话技能 / 终端 CLI 读同一聚合协议(`status.mjs --json`),任何一端数字必然一致。
 
 ## 文档导航
 
 - 开发规范与 AI 协作规则 → [AGENTS.md](./AGENTS.md)
-- 设计方案(施工图,含悬浮窗 UI 定稿与 Chat2Doc 流水线)→ [PROJECT.md](./PROJECT.md)
+- 设计方案(施工图)→ [PROJECT.md](./PROJECT.md)
 - 现状解读(唯一真相源)→ [WIKI.md](./WIKI.md)
 - 开发过程记录(唯一时间线)→ [开发日志.md](./开发日志.md)
-- 技术选型(知识地图)→ [docs/knowledge/](./docs/knowledge/) · 项目复盘 → [docs/retrospectives/](./docs/retrospectives/)
-- UI 原型 → [ZCode UI/](./ZCode%20UI/)(性能浮标八方案原型,浏览器打开 HTML);悬浮窗总览原型未随仓库
+- 技术岔路口知识地图 → [docs/knowledge/](./docs/knowledge/) · 项目复盘 → [docs/retrospectives/](./docs/retrospectives/)
+- UI 原型与设计稿 → [ZCode UI/](./ZCode%20UI/)(性能浮标八方案等原型,浏览器打开)、[OpenDesign UI/](./OpenDesign%20UI/)(悬浮窗设计提案)
 
 ## License
 
