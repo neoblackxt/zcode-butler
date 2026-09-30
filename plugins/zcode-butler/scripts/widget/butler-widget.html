@@ -1800,48 +1800,49 @@
     }
     edgeStarsRAF = requestAnimationFrame(frame);
   }
-  /* ── 眼睛表情引擎(v0.6.11):收起态眼镜动态化——20 种眼神随机触发 ──
-     双眼各 = 基环(圆)+ 变形 path(笑/怒/星/心/眩晕)+ 瞳孔(效果期可现);
-     变换全走 SVG 属性 transform(translate→rotate→scale,元素画在原点,绕眼心变换),
-     与 CSS 显隐(.eye-g 类,收起态常驻)零冲突;效果间随机间隔 2.6-6.8s,不紧邻重复;
-     眼睛不可见(展开态)不触发;prefers-reduced-motion 整体禁用(静态眼镜)。
-     window.__eyeFx 为调试钩子(宿主无注入通道,仅浏览器调试用)。 */
+  /* ── 眼睛表情引擎(v0.6.12 单瞳重构):用户定稿「整个大黑圆=眼球,白圈=瞳孔」——
+     眼睛即按钮本体:黑盘 r76.5 为眼球(原生元素,不动),白圈(瞳)成为独立可动层
+     #pupil(r20.6 圆片 = 原镜片环的等视重),效果=驱动瞳孔在眼内移动/缩放/变形,
+     眼皮(黑盘上的遮罩弧)负责闭合成度。20 种眼神随机触发,间隔 2.6-6.8s,
+     不紧邻重复;展开态/不可见不触发;reduced-motion 禁用;页面隐藏 rAF 暂停自愈。
+     全部变换走 SVG 属性(JS 侧),与 CSS 显隐契约零冲突;调试钩子 window.__eyeFx。 */
   (function () {
     var host = document.getElementById('eyeG');
     if (!host) return;
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     var NS = 'http://www.w3.org/2000/svg';
-    var CY = 97, DX = 23, R = 19, PR = 7.5, SW = 7;
+    var CX = 96.5, CY = 97, PR = 20.6;          /* 眼心 / 瞳半径(=原环 r30.9×0.667 视重) */
+    var MAXOFF = 76.5 - PR - 5;                 /* 瞳心活动限界(留 5 边距,贴边即瞪视) */
+    /* 层:瞳基片(圆)+ 瞳变形 path(星/螺旋/泪滴等,与圆互斥淡切)+ 上眼皮遮罩 */
+    var fxLayer = el('g', {});
+    host.insertBefore(fxLayer, host.firstChild);
+    var pupil = el('g', { transform: 'translate(' + CX + ' ' + CY + ')' });
+    var pDot = el('circle', { r: PR, fill: 'var(--icon)' });
+    var pFx = el('path', { fill: 'var(--icon)', opacity: 0 });
+    pupil.appendChild(pDot); pupil.appendChild(pFx);
+    host.appendChild(pupil);
+    var lid = el('path', { d: lidD(0), fill: 'var(--panel)', opacity: 0 });
+    host.appendChild(lid);
     function el(t, a) {
       var e = document.createElementNS(NS, t);
       for (var k in a) e.setAttribute(k, a[k]);
       return e;
     }
-    var fxLayer = el('g', {});
-    host.appendChild(fxLayer);
-    function mkUnit(side) {
-      var g = el('g', {});
-      var ring = el('circle', { r: R, fill: 'none', stroke: 'var(--icon)', 'stroke-width': SW });
-      var fx = el('path', { fill: 'none', stroke: 'var(--icon)', 'stroke-width': SW, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: 0 });
-      var pup = el('circle', { r: PR, fill: 'var(--icon)', opacity: 0 });
-      g.appendChild(ring); g.appendChild(fx); g.appendChild(pup);
-      host.insertBefore(g, fxLayer);
-      return { g: g, ring: ring, fx: fx, pup: pup, x: 96.5 + side * DX, y: CY,
-               tx: 0, ty: 0, sx: 1, sy: 1, rot: 0, pdx: 0, pdy: 0, pop: 0, fo: 0 };
+    function lidD(k) {   /* 上眼皮:k=0 睁,k=1 全闭(遮上半盘缘) */
+      var h = 76.5 * k * 2;
+      return 'M' + (CX - 77) + ' ' + CY + ' A77 77 0 0 1 ' + (CX + 77) + ' ' + CY +
+             ' L' + (CX + 77) + ' ' + (CY - h) + ' A' + (77 + 0.001) + ' 77 0 0 0 ' + (CX - 77) + ' ' + (CY - h) + ' Z';
     }
-    var UL = mkUnit(-1), UR = mkUnit(1), U = [UL, UR];
-    function render(u) {
-      u.g.setAttribute('transform', 'translate(' + (u.x + u.tx) + ' ' + (u.y + u.ty) + ') rotate(' + u.rot + ') scale(' + u.sx + ' ' + u.sy + ')');
-      u.pup.setAttribute('cx', u.pdx.toFixed(1));
-      u.pup.setAttribute('cy', u.pdy.toFixed(1));
-      u.pup.setAttribute('opacity', u.pop.toFixed(2));
-      u.ring.setAttribute('opacity', (1 - u.fo).toFixed(2));
-      u.fx.setAttribute('opacity', u.fo.toFixed(2));
+    var S = { x: 0, y: 0, s: 1, rot: 0, fo: 0, lid: 0 };   /* 瞳态 */
+    function render() {
+      pupil.setAttribute('transform', 'translate(' + (CX + S.x) + ' ' + (CY + S.y) + ') rotate(' + S.rot + ') scale(' + S.s + ')');
+      pDot.setAttribute('opacity', (1 - S.fo).toFixed(2));
+      pFx.setAttribute('opacity', S.fo.toFixed(2));
+      lid.setAttribute('d', lidD(S.lid));
+      lid.setAttribute('opacity', S.lid > 0.01 ? 1 : 0);
     }
-    function renderAll() { for (var i = 0; i < U.length; i++) render(U[i]); }
-    renderAll();
+    render();
     function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
-    function ease(k) { return k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2; }
     function tween(dur, fn) {
       return new Promise(function (res) {
         var t0 = performance.now();
@@ -1853,209 +1854,190 @@
         requestAnimationFrame(step);
       });
     }
-    /* 形状库(眼心为原点) */
-    var SH = {
-      smile: 'M-16 7 Q0 -15 16 7',
-      angryL: 'M-13 -12 L13 0 L-13 12',
-      angryR: 'M13 -12 L-13 0 L13 12',
-      star: 'M0 -18 L4.6 -4.6 L18 0 L4.6 4.6 L0 18 L-4.6 4.6 L-18 0 L-4.6 -4.6 Z',
-      heart: 'M0 14 C-14 4 -13 -9 -6 -9 C-2 -9 0 -5 0 -3 C0 -5 2 -9 6 -9 C13 -9 14 4 0 14 Z',
-      spiral: (function () {
-        var d = '';
-        for (var t = 0; t <= 1; t += 0.04) {
-          var r = 3 + t * 14, a = t * Math.PI * 5;
-          d += (d ? ' L' : 'M') + (r * Math.cos(a)).toFixed(1) + ' ' + (r * Math.sin(a)).toFixed(1);
-        }
-        return d;
-      })()
-    };
-    function swap(u, d, filled) {
-      u.fx.setAttribute('d', d);
-      if (filled) { u.fx.setAttribute('fill', 'var(--icon)'); u.fx.setAttribute('stroke', 'none'); }
-      else { u.fx.setAttribute('fill', 'none'); u.fx.setAttribute('stroke', 'var(--icon)'); }
+    function ease(k) { return k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2; }
+    function starD(rI, rO) {
+      var d = '';
+      for (var i = 0; i < 8; i++) {
+        var a = i * Math.PI / 4 - Math.PI / 2, r = (i % 2 ? rI : rO);
+        d += (d ? ' L' : 'M') + (r * Math.cos(a)).toFixed(1) + ' ' + (r * Math.sin(a)).toFixed(1);
+      }
+      return d + ' Z';
     }
-    async function shapeOn(dL, dR, filled) {
-      swap(UL, dL, filled); swap(UR, dR || dL, filled);
-      await tween(110, function (e) { UL.fo = e; UR.fo = e; renderAll(); });
+    function spiralD() {
+      var d = '';
+      for (var t = 0; t <= 1; t += 0.04) {
+        var r = 2 + t * (PR - 2), a = t * Math.PI * 5;
+        d += (d ? ' L' : 'M') + (r * Math.cos(a)).toFixed(1) + ' ' + (r * Math.sin(a)).toFixed(1);
+      }
+      return d;
     }
-    async function shapeOff() {
-      await tween(140, function (e) { UL.fo = 1 - e; UR.fo = 1 - e; renderAll(); });
-      UL.fo = UR.fo = 0; renderAll();
+    function pupilFx(d, keepDot) {
+      pFx.setAttribute('d', d);
+      S.fo = keepDot ? 0 : 1;   /* keepDot=真 时形变叠在圆片上(带瞳) */
+      render();
     }
-    /* 附件粒子(泪/汗/Z/?/闪) */
-    async function dropFall(x, y, dy, r) {
-      var c = el('circle', { cx: x, cy: y, r: r, fill: 'var(--icon)' });
-      fxLayer.appendChild(c);
-      await tween(700, function (e) {
-        c.setAttribute('cy', (y + dy * e).toFixed(1));
-        c.setAttribute('opacity', (1 - e).toFixed(2));
-      });
-      c.remove();
+    async function pupilFxOff() {
+      await tween(140, function (e) { S.fo = 1 - e; render(); });
+      S.fo = 0; render();
     }
-    async function glyph(txt, x, y, size) {
-      var t = el('text', { x: x, y: y, fill: 'var(--icon)', 'font-size': size,
+    async function glyph(txt, dx, dy, size) {
+      var t = el('text', { x: CX + 46, y: CY - 46 + dy, fill: 'var(--icon)', 'font-size': size,
         'font-family': 'Segoe UI, sans-serif', 'font-weight': 700, 'text-anchor': 'middle', opacity: 0 });
       t.textContent = txt;
       fxLayer.appendChild(t);
-      await tween(900, function (e) {
-        t.setAttribute('y', (y - 26 * e).toFixed(1));
+      await tween(950, function (e) {
+        t.setAttribute('y', (CY - 46 + dy - 26 * e).toFixed(1));
         t.setAttribute('opacity', (e < 0.15 ? e / 0.15 : 1 - (e - 0.15) / 0.85).toFixed(2));
       });
       t.remove();
     }
-    async function sparkAt(x, y) {
-      var p = el('path', { d: 'M0 -7 L1.8 -1.8 L7 0 L1.8 1.8 L0 7 L-1.8 1.8 L-7 0 L-1.8 -1.8 Z',
-        fill: 'var(--icon)', transform: 'translate(' + x + ' ' + y + ') scale(0)', opacity: 1 });
-      fxLayer.appendChild(p);
-      await tween(420, function (e) {
-        var s = e < 0.4 ? e / 0.4 : 1 - (e - 0.4) / 0.6;
-        p.setAttribute('transform', 'translate(' + x + ' ' + y + ') scale(' + Math.max(0, s).toFixed(2) + ')');
+    async function particle(x, y, vx, vy, life, r) {
+      var c = el('circle', { cx: x, cy: y, r: r, fill: 'var(--icon)' });
+      fxLayer.appendChild(c);
+      await tween(life, function (e) {
+        c.setAttribute('cx', (x + vx * e).toFixed(1));
+        c.setAttribute('cy', (y + vy * e).toFixed(1));
+        c.setAttribute('opacity', (1 - e).toFixed(2));
       });
-      p.remove();
+      c.remove();
     }
-    async function blinkDur(d1, d2) {
-      await tween(d1, function (e) { UL.sy = UR.sy = 1 - 0.94 * e; renderAll(); });
-      await tween(d2, function (e) { UL.sy = UR.sy = 0.06 + 0.94 * e; renderAll(); });
-    }
-    /* 20 效果注册表 */
+    /* 20 效果(黑盘=眼球,白圈=瞳孔语义) */
     var FX = {
-      blink: async function () { await blinkDur(110, 130); },
-      doubleBlink: async function () { await blinkDur(90, 100); await wait(120); await blinkDur(90, 110); },
-      wink: async function () {
-        await tween(110, function (e) { UL.sy = 1 - 0.94 * e; UL.rot = -6 * e; renderAll(); });
-        await wait(160);
-        await tween(150, function (e) { UL.sy = 0.06 + 0.94 * e; UL.rot = -6 * (1 - e); renderAll(); });
+      blink: async function () { await tween(110, function (e) { S.lid = e; render(); }); await tween(140, function (e) { S.lid = 1 - e; render(); }); },
+      doubleBlink: async function () {
+        await tween(90, function (e) { S.lid = e; render(); }); await tween(110, function (e) { S.lid = 1 - e; render(); });
+        await wait(140);
+        await tween(90, function (e) { S.lid = e; render(); }); await tween(130, function (e) { S.lid = 1 - e; render(); });
       },
-      squint: async function () {
-        await tween(200, function (e) { UL.sy = UR.sy = 1 - 0.62 * e; renderAll(); });
-        await wait(850);
-        await tween(260, function (e) { UL.sy = UR.sy = 0.38 + 0.62 * e; renderAll(); });
-      },
-      smile: async function () {
-        await shapeOn(SH.smile);
-        await tween(900, function (e, k) { UL.ty = UR.ty = -2 * Math.sin(k * Math.PI * 3); renderAll(); });
-        await shapeOff();
-      },
-      star: async function () {
-        await shapeOn(SH.star, null, true);
-        await tween(1200, function (e) { UL.rot = UR.rot = 720 * e; var s = 1 + 0.12 * Math.sin(e * Math.PI * 4); UL.sx = UR.sx = s; UL.sy = UR.sy = s; renderAll(); });
-        UL.rot = UR.rot = 0; UL.sx = UR.sy = 1; renderAll();
-        await shapeOff();
-      },
-      heart: async function () {
-        await shapeOn(SH.heart, null, true);
-        for (var i = 0; i < 3; i++) {
-          await tween(300, function (e) { var s = 1 + 0.18 * Math.sin(e * Math.PI); UL.sx = UR.sx = s; UL.sy = UR.sy = s; renderAll(); });
-        }
-        await shapeOff();
-      },
+      sleep: async function () { await tween(200, function (e) { S.lid = e; render(); }); await wait(900); await tween(300, function (e) { S.lid = 1 - e; render(); }); },
       lookAround: async function () {
-        UL.pop = UR.pop = 1; renderAll();
-        for (var i = 0; i < 4; i++) {
-          var gx = (Math.random() * 2 - 1) * 8, gy = (Math.random() * 2 - 1) * 5;
-          await tween(170, function (e, k, cx, cy) {
-            UL.pdx = UR.pdx = cx * k; UL.pdy = UR.pdy = cy * k; renderAll();
-          }.bind(null, gx, gy));
-          await wait(240);
-        }
-        await tween(150, function (e) { UL.pdx = UR.pdx *= 0.8; UL.pdy = UR.pdy *= 0.8; UL.pop = UR.pop = 1 - e; renderAll(); });
-      },
-      crossEye: async function () {
-        UL.pop = UR.pop = 1; renderAll();
-        await tween(220, function (e) { UL.pdx = 8 * e; UR.pdx = -8 * e; renderAll(); });
-        await wait(800);
-        await tween(220, function (e) { UL.pdx = 8 * (1 - e); UR.pdx = -8 * (1 - e); renderAll(); });
-        await tween(150, function (e) { UL.pop = UR.pop = 1 - e; renderAll(); });
-      },
-      eyeRoll: async function () {
-        UL.pop = UR.pop = 1; renderAll();
-        await tween(950, function (e) {
-          var a = e * Math.PI * 2 - Math.PI / 2;
-          UL.pdx = UR.pdx = Math.cos(a) * 7; UL.pdy = UR.pdy = Math.sin(a) * 7; renderAll();
-        });
-        await tween(150, function (e) { UL.pop = UR.pop = 1 - e; renderAll(); });
-      },
-      wide: async function () {
-        await tween(220, function (e) { UL.sx = UR.sx = UL.sy = UR.sy = 1 + 0.4 * e; UL.pop = e; UL.pup.setAttribute('r', (PR + (4.5 - PR) * e).toFixed(1)); renderAll(); });
-        await wait(700);
-        await tween(260, function (e) { UL.sx = UR.sx = UL.sy = UR.sy = 1.4 - 0.4 * e; UL.pop = 1 - e; UL.pup.setAttribute('r', (4.5 + (PR - 4.5) * e).toFixed(1)); renderAll(); });
-        UL.pup.setAttribute('r', PR); UR.pup.setAttribute('r', PR);
-      },
-      sleepy: async function () {
-        await tween(300, function (e) { UL.sy = UR.sy = 1 - 0.66 * e; renderAll(); });
-        glyph('z', 132, 74, 20);
-        await wait(450);
-        glyph('z', 140, 62, 26);
-        await wait(650);
-        await tween(350, function (e) { UL.sy = UR.sy = 0.34 + 0.66 * e; renderAll(); });
-      },
-      sad: async function () {
-        await tween(260, function (e) { UL.rot = -10 * e; UR.rot = 10 * e; UL.ty = UR.ty = 2 * e; renderAll(); });
-        dropFall(UL.x, CY + 22, 34, 4.5);
-        await wait(900);
-        await tween(260, function (e) { UL.rot = -10 * (1 - e); UR.rot = 10 * (1 - e); UL.ty = UR.ty = 2 * (1 - e); renderAll(); });
-      },
-      sweat: async function () {
-        for (var i = 0; i < 3; i++) {
-          await tween(70, function (e, k) { var d = (k % 2 ? 1 : -1) * 2.2; UL.tx = d; UR.tx = d; renderAll(); }.bind(null));
-          await tween(70, function () { UL.tx = 0; UR.tx = 0; renderAll(); });
-        }
-        dropFall(UR.x + 20, CY - 16, 30, 4);
-        await wait(650);
-      },
-      dizzy: async function () {
-        await shapeOn(SH.spiral);
-        await tween(1100, function (e) { UL.rot = -540 * e; UR.rot = 540 * e; renderAll(); });
-        UL.rot = UR.rot = 0; renderAll();
-        await shapeOff();
-      },
-      angry: async function () {
-        await shapeOn(SH.angryL, SH.angryR);
-        for (var i = 0; i < 3; i++) {
-          await tween(80, function (e, k) { var d = (k % 2 ? 1 : -1) * 3; UL.tx = d; UR.tx = d; renderAll(); }.bind(null));
-          await tween(80, function () { UL.tx = 0; UR.tx = 0; renderAll(); });
-        }
-        await wait(350);
-        await shapeOff();
-      },
-      question: async function () {
-        await tween(220, function (e) { UR.sx = UR.sy = 1 + 0.3 * e; UR.rot = 12 * e; renderAll(); });
-        glyph('?', UR.x, 62, 24);
-        await wait(850);
-        await tween(220, function (e) { UR.sx = UR.sy = 1.3 - 0.3 * e; UR.rot = 12 * (1 - e); renderAll(); });
-      },
-      twinkle: async function () {
-        sparkAt(UL.x - 16, CY - 16); sparkAt(UR.x + 16, CY - 16);
-        await tween(500, function (e) { var s = 1 + 0.14 * Math.sin(e * Math.PI); UL.sx = UR.sx = s; UL.sy = UR.sy = s; renderAll(); });
-        sparkAt(UL.x + 16, CY + 14); sparkAt(UR.x - 16, CY + 14);
-        await tween(400, function (e) { var s = 1.14 - 0.14 * e * 0; renderAll(); });
-      },
-      scan: async function () {
-        UL.pop = UR.pop = 1; renderAll();
-        var seq = [[-9, 0], [9, 0], [-5, -3], [0, 0]];
+        var seq = [[10, 0], [-10, 4], [6, -8], [-8, -4], [0, 0]];
         for (var i = 0; i < seq.length; i++) {
           var g = seq[i];
-          await tween(200, function (e, k, cx, cy) { UL.pdx = UR.pdx = cx * k; UL.pdy = UR.pdy = cy * k; renderAll(); }.bind(null, g[0], g[1]));
-          await wait(260);
+          await tween(200, function (e, k, gx, gy) { S.x = gx * k; S.y = gy * k; render(); }.bind(null, g[0], g[1]));
+          await wait(280);
         }
-        await tween(150, function (e) { UL.pop = UR.pop = 1 - e; renderAll(); });
       },
-      spinStar: async function () {
-        await shapeOn(SH.star, null, true);
-        await tween(1000, function (e) { UL.rot = UR.rot = 1080 * e; UL.tx = Math.sin(e * Math.PI * 6) * 4; UR.tx = -Math.sin(e * Math.PI * 6) * 4; renderAll(); });
-        UL.rot = UR.rot = 0; UL.tx = UR.tx = 0; renderAll();
-        await shapeOff();
+      scan: async function () {
+        var seq = [[-MAXOFF + 6, 0], [MAXOFF - 6, 0]];
+        for (var i = 0; i < 2; i++) {
+          await tween(420, function (e, k, gx) { S.x = gx * k; render(); }.bind(null, seq[i][0]));
+          await wait(320);
+        }
+        await tween(280, function (e) { S.x = (MAXOFF - 6) * (1 - e); render(); });
+      },
+      wander: async function () {
+        for (var i = 0; i < 3; i++) {
+          var gx = (Math.random() * 2 - 1) * MAXOFF * 0.7, gy = (Math.random() * 2 - 1) * MAXOFF * 0.5;
+          await tween(360, function (e, k, cx, cy) { S.x = cx * k; S.y = cy * k; render(); }.bind(null, gx, gy));
+          await wait(420);
+        }
+        await tween(300, function (e) { S.x *= (1 - e); S.y *= (1 - e); render(); });
+      },
+      star: async function () {
+        pupilFx(starD(9, PR + 2));
+        await tween(1300, function (e) { S.rot = 540 * e; render(); });
+        S.rot = 0; render();
+        await pupilFxOff();
+      },
+      heart: async function () {
+        pupilFx('M0 ' + (PR * 0.72) + ' C' + (-PR * 0.95) + ' ' + (PR * 0.2) + ' ' + (-PR * 0.9) + ' ' + (-PR * 0.5) + ' ' + (-PR * 0.35) + ' ' + (-PR * 0.5) +
+                ' C' + (-PR * 0.1) + ' ' + (-PR * 0.5) + ' 0 ' + (-PR * 0.2) + ' 0 ' + (-PR * 0.12) +
+                ' C0 ' + (-PR * 0.2) + ' ' + (PR * 0.1) + ' ' + (-PR * 0.5) + ' ' + (PR * 0.35) + ' ' + (-PR * 0.5) +
+                ' C' + (PR * 0.9) + ' ' + (-PR * 0.5) + ' ' + (PR * 0.95) + ' ' + (PR * 0.2) + ' 0 ' + (PR * 0.72) + ' Z');
+        for (var i = 0; i < 3; i++) {
+          await tween(300, function (e) { S.s = 1 + 0.16 * Math.sin(e * Math.PI); render(); });
+        }
+        S.s = 1; render();
+        await pupilFxOff();
+      },
+      spiral: async function () {
+        pupilFx(spiralD());
+        await tween(1200, function (e) { S.rot = 720 * e; render(); });
+        S.rot = 0; render();
+        await pupilFxOff();
+      },
+      shrink: async function () {
+        await tween(240, function (e) { S.s = 1 - 0.62 * e; render(); });
+        await wait(800);
+        await tween(300, function (e) { S.s = 0.38 + 0.62 * e; render(); });
+      },
+      dart: async function () {
+        await tween(150, function (e) { S.x = 16 * e; render(); });
+        await wait(180);
+        await tween(170, function (e) { S.x = 16 * (1 - e) + (-16) * e; render(); });
+        await wait(180);
+        await tween(190, function (e) { S.x = -16 * (1 - e); render(); });
+      },
+      wobble: async function () {
+        await tween(750, function (e, k) {
+          S.x = Math.sin(k * Math.PI * 3) * 14; S.y = Math.cos(k * Math.PI * 2) * 7; render();
+        });
+        await tween(200, function (e) { S.x *= (1 - e); S.y *= (1 - e); render(); });
+      },
+      nod: async function () {
+        for (var i = 0; i < 2; i++) {
+          await tween(180, function (e) { S.y = 12 * e; render(); });
+          await tween(220, function (e) { S.y = 12 * (1 - e); render(); });
+        }
+      },
+      sad: async function () {
+        await tween(280, function (e) { S.y = 9 * e; S.s = 1 + 0.1 * e; render(); });
+        particle(CX - 30, CY - 6, -8, 34, 750, 4.5);
+        await wait(850);
+        await tween(280, function (e) { S.y = 9 * (1 - e); S.s = 1.1 - 0.1 * e; render(); });
+      },
+      cry: async function () {
+        for (var i = 0; i < 4; i++) { particle(CX - 34 + i * 6, CY - 4, -5 + i * 3, 30 + i * 4, 820, 4); await wait(210); }
+        await tween(200, function (e) { S.lid = 0.5 * e; render(); });
+        await tween(280, function (e) { S.lid = 0.5 * (1 - e); render(); });
+      },
+      angry: async function () {
+        pupilFx('M' + (-PR + 2) + ' ' + (-6) + ' L' + (PR - 2) + ' 0 L' + (-PR + 2) + ' 6 Z');
+        for (var i = 0; i < 3; i++) {
+          await tween(80, function (e, k) { S.x = (k % 2 ? 1 : -1) * 3; render(); }.bind(null));
+          await tween(80, function () { S.x = 0; render(); });
+        }
+        await wait(300);
+        await pupilFxOff();
+      },
+      dizzy: async function () {
+        pupilFx(spiralD());
+        await tween(1100, function (e) { S.x = Math.sin(e * Math.PI * 4) * 9; S.y = Math.cos(e * Math.PI * 4) * 6; S.rot = 540 * e; render(); });
+        S.x = S.y = S.rot = 0; render();
+        await pupilFxOff();
+      },
+      twinkle: async function () {
+        particle(CX + 42, CY - 42, 6, -6, 500, 3.2); particle(CX - 44, CY - 38, -6, -6, 500, 3.2);
+        await tween(500, function (e) { S.s = 1 + 0.13 * Math.sin(e * Math.PI); render(); });
+        await tween(350, function (e) { S.s = 1.13 - 0.13 * e; render(); });
+      },
+      flash: async function () {
+        for (var i = 0; i < 2; i++) {
+          await tween(120, function (e) { S.fo = 1; pFx.setAttribute('d', starD(6, PR * e < 1 ? 1 : PR)); pupilFx(starD(6, PR)); render(); });
+          await tween(120, function (e) { pupilFx(starD(6, PR)); S.fo = 1 - e; render(); });
+        }
+        pupilFx(starD(9, PR + 2));
+        await tween(500, function (e) { S.rot = 360 * e; render(); });
+        S.rot = 0; render(); await pupilFxOff();
+      },
+      zoom: async function () {
+        await tween(230, function (e) { S.s = 1 + 0.5 * e; render(); });
+        await wait(650);
+        await tween(280, function (e) { S.s = 1.5 - 0.5 * e; render(); });
+      },
+      shake: async function () {
+        for (var i = 0; i < 4; i++) {
+          await tween(70, function (e, k) { S.x = (k % 2 ? 1 : -1) * 7; render(); }.bind(null));
+          await tween(70, function () { S.x = 0; render(); });
+        }
+        await wait(400);
       }
     };
     function resetAll() {
-      for (var i = 0; i < U.length; i++) {
-        var u = U[i];
-        u.tx = u.ty = u.rot = u.pdx = u.pdy = u.pop = u.fo = 0;
-        u.sx = u.sy = 1;
-        u.pup.setAttribute('r', PR);
-      }
+      S.x = S.y = S.rot = S.fo = S.lid = 0; S.s = 1;
       while (fxLayer.firstChild) fxLayer.firstChild.remove();
-      renderAll();
+      render();
     }
     window.__eyeFx = { play: function (n) { return FX[n] ? FX[n]().then(resetAll) : Promise.reject('no fx'); },
                        names: Object.keys(FX), manual: false };   /* 调试钩子:宿主无注入通道;manual=true 时调度器避让 */
@@ -2073,6 +2055,7 @@
       }
     })();
   })();
+
   (function () {
     var m = location.search.match(/[?&]edge=(none|hair|glow|lift|rainbow|stars|input)/);
     if (!m) {
