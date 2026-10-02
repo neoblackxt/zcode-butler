@@ -1,6 +1,18 @@
 ﻿#!/usr/bin/env powershell
 # =====================================================================
-# 码管家桌面悬浮窗 v0.6.18(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# 码管家桌面悬浮窗 v0.6.19(PowerShell 5.1+ / 内联 C# 合成宿主 + WebView2)
+# v0.6.19 窗口形状区域(#1:侧边聊天贴面板文字无法被鼠标选中,似有透明组件遮挡;
+#   开发日志 2026-10-01「大面积悬停致标题栏按钮失效」专项同根因):
+#   根因:窗口透明条带(窗宽≈2×面板带,覆盖侧边聊天右侧)仅靠 WM_NCHITTEST=
+#   HTTRANSPARENT 穿透——该转发 Win32 只对同线程窗口有保证,跨进程(本宿主↔
+#   Electron)输入被本窗截获、页面 pointer-events:none 静默吞掉。
+#   修法(即专项落档的修复方向):SetWindowRgn 形状区域(Get-ButlerRegionSpec
+#   纯函数:胶囊包围盒+fab 圆+toast/pop 矩形,外扩 3px 硬边落全透明像素),
+#   窗口几何=交互区,条带物理上不再属于本窗,任何输入直达 ZCode;区域随
+#   shape 重报伸缩(HTML 侧 pop/toast 显形、面板展开/收起即刻按终态位重报,
+#   resize 防抖重报)。NCHITTEST 掩码保留(区域内细粒度 + 形状未到时兜底)。
+#   测试:widget-fix.test.mjs region 单测 + BUTLER_E2E=1 活体(GetWindowRgn
+#   生效、条带点区域外、面板带点区域内、设区域后窗口存活)。
 # v0.6.18 手动显隐持久化(#2:Ctrl+Shift+G 隐藏后,侧边继续对话导致面板再次显示):
 #   根因:SessionStart 每会话跑 widget-launch.mjs(touch wake 文件 + 新实例置
 #   Show 事件双通道),wakeTimer、VIS2 跟随(ApplyFollowGeom showWhenUp)、重吸附、
@@ -589,6 +601,43 @@ public static class ButlerHost {
     Log(_popR > _popL ? ("pop rect=" + l + "," + t + "," + r + "," + b) : "pop rect=off");
   }
 
+  // v0.6.19 形状区域:SetWindowRgn 让窗口几何=交互区。原透明条带(窗宽≈2×面板带,
+  // 覆盖侧边聊天右侧)仅靠 WM_NCHITTEST=HTTRANSPARENT 穿透——该转发 Win32 只对同
+  // 线程窗口有保证,跨进程(本宿主↔Electron)拖拽被本窗截获、页面 pointer-events:
+  // none 静默吞掉,表现为贴面板文字无法选中(亦是开发日志 2026-10-01 专项的根因)。
+  // 设区域后条带物理上不属于本窗,任何输入直达 ZCode。图元由 PS 侧
+  // Get-ButlerRegionSpec(纯函数,有单测)计算,数据与 NCHITTEST 掩码同一条 shape
+  // 消息(弹窗/通知卡显隐随重报伸缩);空图元=形状未到,不设区域,由 NCHITTEST
+  // 掩码兜底(同旧行为)。
+  [DllImport("gdi32.dll")] private static extern IntPtr CreateRectRgn(int l, int t, int r, int b);
+  [DllImport("gdi32.dll")] private static extern IntPtr CreateEllipticRgn(int l, int t, int r, int b);
+  [DllImport("gdi32.dll")] private static extern int CombineRgn(IntPtr dst, IntPtr a, IntPtr b, int mode);
+  [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr o);
+  [DllImport("user32.dll")] private static extern int SetWindowRgn(IntPtr h, IntPtr r, bool redraw);
+  public static void SetRegionSpec(int[] rects, int[] ellipses) {
+    if (_hwnd == IntPtr.Zero) return;
+    int n = 0;
+    if (rects != null) n += rects.Length / 4;
+    if (ellipses != null) n += ellipses.Length / 4;
+    if (n == 0) return;   // 形状未到:不动区域
+    IntPtr combo = CreateRectRgn(0, 0, 0, 0), tmp = IntPtr.Zero;
+    try {
+      if (rects != null) for (int i = 0; i + 3 < rects.Length; i += 4) {
+        tmp = CreateRectRgn(rects[i], rects[i + 1], rects[i + 2], rects[i + 3]);
+        CombineRgn(combo, combo, tmp, 2 /*RGN_OR*/); DeleteObject(tmp); tmp = IntPtr.Zero;
+      }
+      if (ellipses != null) for (int i = 0; i + 3 < ellipses.Length; i += 4) {
+        tmp = CreateEllipticRgn(ellipses[i], ellipses[i + 1], ellipses[i + 2], ellipses[i + 3]);
+        CombineRgn(combo, combo, tmp, 2); DeleteObject(tmp); tmp = IntPtr.Zero;
+      }
+      if (SetWindowRgn(_hwnd, combo, true) != 0) combo = IntPtr.Zero;   // 成功:系统接管该 HRGN,勿删
+      Log("region set, prims=" + n);
+    } finally {
+      if (tmp != IntPtr.Zero) DeleteObject(tmp);
+      if (combo != IntPtr.Zero) DeleteObject(combo);
+    }
+  }
+
   private static bool MaskHit(int screenX, int screenY) {
     var p = new POINT { X = screenX, Y = screenY };
     ScreenToClient(_hwnd, ref p);
@@ -742,6 +791,28 @@ function Push-Data {
   } catch { WLog ('push THREW: ' + $_.Exception.Message) }
 }
 
+# v0.6.19:shape 消息的物理像素要素 → Get-ButlerRegionSpec(纯函数,单测覆盖)
+# → C# SetRegionSpec(SetWindowRgn)。区域随 shape 重报伸缩(弹窗/通知卡/收起
+# 动画/resize),与 NCHITTEST 掩码同源;失败只记日志,掩码不受影响。
+function Update-ButlerRegion {
+  param([int[]]$Xs, [int[]]$Ys, [int]$FabX, [int]$FabY, [int]$FabR,
+        [int]$ToastL, [int]$ToastT, [int]$ToastR, [int]$ToastB,
+        [int]$PopL, [int]$PopT, [int]$PopR, [int]$PopB)
+  try {
+    $wh0 = [ButlerHost]::Handle
+    if (([int64]$wh0) -eq 0) { return }
+    $wr = New-Object ButlerNative.Win+RECT
+    [ButlerNative.Win]::GetWindowRect($wh0, [ref]$wr) | Out-Null
+    $ww = $wr.Right - $wr.Left; $wh = $wr.Bottom - $wr.Top
+    if ($ww -le 0 -or $wh -le 0) { return }
+    $spec = Get-ButlerRegionSpec -CapsuleXs $Xs -CapsuleYs $Ys -WinW $ww -WinH $wh `
+      -FabX $FabX -FabY $FabY -FabR $FabR `
+      -ToastL $ToastL -ToastT $ToastT -ToastR $ToastR -ToastB $ToastB `
+      -PopL $PopL -PopT $PopT -PopR $PopR -PopB $PopB
+    [ButlerHost]::SetRegionSpec([int[]]$spec.rects, [int[]]$spec.ellipses)
+  } catch { WLog ('region THREW: ' + $_.Exception.Message) }
+}
+
 [ButlerHost]::OnMessage = {
   param($msg)
   try {
@@ -769,25 +840,26 @@ function Push-Data {
         [ButlerHost]::SetHitMask($xs, $ys, $cap.Count, $fx, $fy, $fr)
         # v0.5.1:通知卡矩形(显时 [l,t,r,b] CSS px / 隐时 null)并入命中掩码——
         # 卡上「知道了/稍后」可点的前提;页面卡进出会重报 shape,此处随之开/关
+        $tL = 0; $tT = 0; $tR = 0; $tB = 0
         if ($o.toast) {
-          [ButlerHost]::SetToastRect(
-            [int][Math]::Round([double]$o.toast[0] * $dpr),
-            [int][Math]::Round([double]$o.toast[1] * $dpr),
-            [int][Math]::Round([double]$o.toast[2] * $dpr),
-            [int][Math]::Round([double]$o.toast[3] * $dpr))
-        } else {
-          [ButlerHost]::SetToastRect(0, 0, 0, 0)
+          $tL = [int][Math]::Round([double]$o.toast[0] * $dpr)
+          $tT = [int][Math]::Round([double]$o.toast[1] * $dpr)
+          $tR = [int][Math]::Round([double]$o.toast[2] * $dpr)
+          $tB = [int][Math]::Round([double]$o.toast[3] * $dpr)
         }
+        [ButlerHost]::SetToastRect($tL, $tT, $tR, $tB)
         # v0.6.2:环详情弹窗矩形(临时,随刷新按钮)同 toast 并入/退出命中掩码
+        $pL = 0; $pT = 0; $pR = 0; $pB = 0
         if ($o.pop) {
-          [ButlerHost]::SetPopRect(
-            [int][Math]::Round([double]$o.pop[0] * $dpr),
-            [int][Math]::Round([double]$o.pop[1] * $dpr),
-            [int][Math]::Round([double]$o.pop[2] * $dpr),
-            [int][Math]::Round([double]$o.pop[3] * $dpr))
-        } else {
-          [ButlerHost]::SetPopRect(0, 0, 0, 0)
+          $pL = [int][Math]::Round([double]$o.pop[0] * $dpr)
+          $pT = [int][Math]::Round([double]$o.pop[1] * $dpr)
+          $pR = [int][Math]::Round([double]$o.pop[2] * $dpr)
+          $pB = [int][Math]::Round([double]$o.pop[3] * $dpr)
         }
+        [ButlerHost]::SetPopRect($pL, $pT, $pR, $pB)
+        # v0.6.19:同一份要素重设窗口形状区域(SetWindowRgn),条带出窗
+        Update-ButlerRegion -Xs $xs -Ys $ys -FabX $fx -FabY $fy -FabR $fr `
+          -ToastL $tL -ToastT $tT -ToastR $tR -ToastB $tB -PopL $pL -PopT $pT -PopR $pR -PopB $pB
       } catch { WLog ('shape THREW: ' + $_.Exception.Message) }
     }
     elseif ($msg -like '{"type":"refresh"*') {
